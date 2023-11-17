@@ -32,6 +32,8 @@ RUN cd /home/ros_ws/src/git_packages && git clone --recursive https://github.com
         && git clone https://github.com/ros-planning/panda_moveit_config.git -b noetic-devel \
         && git clone https://github.com/IFL-CAMP/easy_handeye
 
+RUN apt install ros-noetic-audio-common -y
+
 #rosdep install on src folder
 RUN /bin/bash -c "source /opt/ros/noetic/setup.bash; cd /home/ros_ws; rosdep install --from-paths src --ignore-src -r -y"
 
