@@ -26,6 +26,11 @@ catkin_install_python(PROGRAMS
 )
 
 catkin_install_python(PROGRAMS
+  src/record_trajectories_moveit.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+catkin_install_python(PROGRAMS
   src/robot_joint_converter.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
@@ -34,3 +39,4 @@ catkin_install_python(PROGRAMS
 install(DIRECTORY launch
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
+

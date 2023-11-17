@@ -40,6 +40,9 @@ RUN /bin/bash -c "source /opt/ros/noetic/setup.bash; cd /home/ros_ws; catkin_mak
 
 RUN echo "source /home/ros_ws/devel/setup.bash" >> ~/.bashrc
 
+# Install joy
+RUN sudo apt-get install ros-noetic-joy -y
+
 # set workdir as home/ros_ws
 WORKDIR /home/ros_ws
 
