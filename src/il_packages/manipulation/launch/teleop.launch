@@ -1,0 +1,6 @@
+<launch>
+    <node name="teleop_node" pkg="manipulation" type="joy_to_action.py" output="screen"></node>
+    <node name="joy_node" pkg="joy" type="joy_node" output="screen">
+        <param name="autorepeat_rate" value="20" />
+    </node>
+</launch>

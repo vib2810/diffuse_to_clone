@@ -23,6 +23,7 @@ class DataCollection:
     def __init__(self) -> None:
         
         rospy.init_node('joy_subscribe')
+        rospy.loginfo('Initializing Node')
         
         self.state_val = None
         self.fa = FrankaArm(init_node = False)
@@ -36,7 +37,7 @@ class DataCollection:
         # hz to run the joy subsriber node
         self.fps = 10
         self.T =100
-        self.curr_gripper_width = -self.fa.get_gripper_width()
+        self.curr_gripper_width = self.fa.get_gripper_width()
         
         print("Current gripper width", self.curr_gripper_width)
         
@@ -61,6 +62,7 @@ class DataCollection:
         if(self.current_time - self.last_time > 1/self.fps):
             print("Reached the callback")
             curr_pose = self.fa.get_pose()
+            self.curr_gripper_width = self.fa.get_gripper_width()
             print("Got current pose")
             # print("Curr pose Translation", curr_pose.translation)
             
@@ -70,7 +72,7 @@ class DataCollection:
             print(" Deltas", delta_unnormalized)
             next_pose, gripper_width = self.get_next_pose(curr_pose,delta_unnormalized)
             # gripper_width  = -gripper_width
-            print(" Current gripper width", -self.fa.get_gripper_width())
+            print(" Current gripper width", self.fa.get_gripper_width())
             print(" New gripper width", gripper_width)
             # self.collect_data(state_msg, action)
             # self.action_pub.publish(action_pose)
@@ -150,7 +152,7 @@ class DataCollection:
         
         next_pose.translation += delta_unnormalized[:3]
         next_pose.rotation = rot_matrix_next_state
-        
+
         gripper_width = self.curr_gripper_width + delta_unnormalized[4]
         
         return next_pose, gripper_width
@@ -186,12 +188,12 @@ class DataCollection:
         else:
             delta_width = 0
             
-        
         return (delta_x, delta_y, delta_z, delta_a, delta_width)
     
 
 if __name__ == '__main__': 
     try:
+        print("hello")
         data_collector = DataCollection()
         rate = rospy.Rate(10)
         rospy.spin()
