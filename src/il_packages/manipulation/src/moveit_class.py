@@ -14,7 +14,7 @@ import copy
 from geometry_msgs.msg import PoseStamped, Pose
 import pickle
 import actionlib
-from il_msgs.msg import RecordJointsAction, RecordJointsResult, RecordJointsGoal
+# from il_msgs.msg import RecordJointsAction, RecordJointsResult, RecordJointsGoal
 
 sys.path.append("/home/ros_ws/")
 from src.git_packages.frankapy.frankapy import FrankaArm, SensorDataMessageType

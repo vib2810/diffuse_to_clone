@@ -56,7 +56,6 @@ class DataCollection:
         # Define subscribers
         self.joy_sub = rospy.Subscriber('/joy', Joy,self.joy_callback)
 
-        
     def joy_callback(self, joy_msg):
         self.current_time = time.time()
         if(self.current_time - self.last_time > 1/self.fps):
