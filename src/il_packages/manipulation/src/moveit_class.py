@@ -14,7 +14,7 @@ import copy
 from geometry_msgs.msg import PoseStamped, Pose
 import pickle
 import actionlib
-from il_msgs.msg import RecordJointsAction, RecordJointsResult, RecordJointsGoal
+# from il_msgs.msg import RecordJointsAction, RecordJointsResult, RecordJointsGoal
 
 sys.path.append("/home/ros_ws/")
 from src.git_packages.frankapy.frankapy import FrankaArm, SensorDataMessageType
@@ -23,8 +23,9 @@ from src.git_packages.frankapy.frankapy.proto_utils import sensor_proto2ros_msg,
 from src.git_packages.frankapy.frankapy.proto import JointPositionSensorMessage, ShouldTerminateSensorMessage
 from franka_interface_msgs.msg import SensorDataGroup
 
-EXPERT_RECORD_FREQUENCY = 10
-class moveit_planner():
+EXPERT_RECORD_FREQUENCY = 5
+RESET_SPEED = 3
+class MoveitPlanner():
     def __init__(self) -> None: #None means no return value
         moveit_commander.roscpp_initialize(sys.argv)
         # rospy.init_node('move_group_python_interface_tutorial',anonymous=True)
@@ -123,7 +124,7 @@ class moveit_planner():
         interpolated_traj = np.array(interpolated_traj)
         return interpolated_traj
 
-    def execute_plan(self, joints_traj, speed = 1, execute_func_record_data: dict = None):
+    def execute_plan(self, joints_traj, speed = 1):
         """
         joints_traj shape: (N x 7)
         """
@@ -193,14 +194,14 @@ class moveit_planner():
         pose_goal = transformation_matrix_to_pose(transformed)
         return pose_goal
     
-    def goto_pose_moveit(self, pose_goal: PoseStamped, speed = 1, execute_func_record_data: dict = None):
+    def goto_pose_moveit(self, pose_goal: PoseStamped, speed = 1):
         """
         Plans and executes a trajectory to a pose goal using moveit
         pose_goal in frame franka_end_effector (frankapy)
         """
         pose_goal = self.get_moveit_pose_given_frankapy_pose(pose_goal.pose)
         plan = self.get_straight_plan_given_pose(pose_goal)
-        trajectory_dict = self.execute_plan(plan, speed, execute_func_record_data= execute_func_record_data)
+        trajectory_dict = self.execute_plan(plan, speed=speed)
         return trajectory_dict
 
     def sample_pose(self, trajectory_limits_dict, goal_pose)-> PoseStamped:
@@ -216,14 +217,19 @@ class moveit_planner():
         zang = np.random.uniform(trajectory_limits_dict["zang_range"][0], trajectory_limits_dict["zang_range"][1])
         orientation = spt.Rotation.from_euler('xyz', [xang, yang, zang], degrees=True).as_quat()
         sample_pose = get_posestamped(np.array([x,y,z]), orientation)
+        if(type(goal_pose) == PoseStamped):
+            goal_pose = goal_pose.pose
+        if get_pose_norm(sample_pose.pose, goal_pose) < trajectory_limits_dict["min_norm_diff"]:
+            sample_pose = self.sample_pose(trajectory_limits_dict, goal_pose)
+        else:
+            print("Start Norm Diff: ", get_pose_norm(sample_pose.pose, goal_pose))
         return sample_pose
 
-    def collect_trajectories_manual(self, trajectory_limits_dict, trajectory_num, speed=1):
+    def collect_trajectories_manual(self, trajectory_limits_dict, execute_func_record_data: dict, reset_speed=RESET_SPEED):
         """
         Function to collect manual data
         """
-        data = {"observations": [], "actions": [], "timestamps": [], "tool_poses": []}
-        target_pose_orig = get_posestamped(np.array([0.5, 0, 0.1]), np.array([1,0,0,0]))
+        target_pose_orig = get_posestamped(np.array([0.5, 0, 0.3]), np.array([1,0,0,0]))
         for i in range (trajectory_limits_dict["n_trajectories"]):
             print(f"--------------Recording Trajectory {i}--------------")
             np.random.seed(i)
@@ -231,8 +237,10 @@ class moveit_planner():
             start_pose = self.sample_pose(trajectory_limits_dict, target_pose_orig)
 
             # move robot to start pose
-            self.goto_pose_moveit(start_pose, speed = speed)
-                        
+            self.goto_pose_moveit(start_pose, speed = reset_speed)
+            
+            execute_func_record_data["record_joints"] = True
+            
             print("Robot Put in Guide Mode")
             # Put robot in run guide mode
             self.fa.run_guide_mode(10000,block=False)
@@ -250,14 +258,11 @@ class moveit_planner():
                 if np.linalg.norm(curr_joint_pose-last_joint_pose)>0.005 and not started:
                     # Start recording data
                     print("Starting Recording")
-                    obs, acts, timesteps, tool_poses_i = [], [], [], []
-
-                if started:
-                    # Record data
-                    obs.append(self.fa.get_joints())
-                    tool_poses_i.append(self.fa.get_pose())
-                    acts.append(self.fa.get_joints()) # TODO: Change this
-                    timesteps.append(rospy.Time.now().to_nsec())
+                    action_goal = RecordJointsGoal()
+                    action_goal.start_msg.trajectory_num.data = execute_func_record_data["trajectory_num"]
+                    action_goal.start_msg.pose = target_pose_orig.pose
+                    execute_func_record_data["action_client"].send_goal(action_goal)
+                    started = True
 
                 if np.linalg.norm(curr_joint_pose-last_joint_pose)<1e-4 and started:
                     # Stop recording data
@@ -265,6 +270,145 @@ class moveit_planner():
                 last_joint_pose = curr_joint_pose
             
             print("Finishing Recording")
+            execute_func_record_data["action_client"].cancel_goal()
+            execute_func_record_data["action_client"].wait_for_result()
+
+            # Stop guide mode
+            self.fa.stop_skill()
+
+        self.fa.reset_joints()
+
+    # Variables and Functions for NextJointUsingPlanner computation
+    next_joint_itr = 0
+    def interpolate_traj_dynamic(self, joints_traj, speed=1):
+        """
+        Deprecated. The next planner joint is directly used instead in get_next_joint_planner
+        Interpolates joints_traj by adding fixed number of points between each point
+        If itr<10, then the number of points added is increased to make the trajectory smoother
+        """
+        interpolated_traj = []
+        NUM_INTERP = 5 #fixed as planner returns points with norm ~0.035    
+        for i in range(1, joints_traj.shape[0]):
+            if i==1 and self.next_joint_itr<20 and False:
+                NUM_INTERP_SLOW = int((NUM_INTERP-0.15*self.next_joint_itr) *2.5)//speed
+                t_interp = np.linspace(1/NUM_INTERP_SLOW, 1, NUM_INTERP_SLOW)
+                t_interp = t_interp**2
+            else:
+                NUM_INTERP_NORMAL = NUM_INTERP//speed #fixed as planner returns points with norm ~0.035 
+                t_interp = np.linspace(1/NUM_INTERP_NORMAL, 1, NUM_INTERP_NORMAL) # linear
+
+            for t_i in range(len(t_interp)):
+                dt = t_interp[t_i]
+                interp_traj_i = joints_traj[i,:]*dt + joints_traj[i-1,:]*(1-dt)
+                interpolated_traj.append(interp_traj_i)
+        
+        interpolated_traj = np.array(interpolated_traj)
+        return interpolated_traj
+
+    def get_next_joint_planner(self, target_pose: Pose):
+        self.next_joint_itr += 1
+
+        pose_goal = self.get_moveit_pose_given_frankapy_pose(target_pose.pose)
+        plan = self.get_straight_plan_given_pose(pose_goal)
+        if len(plan) == 1:
+            interpolated_traj= plan
+        else:
+            interpolated_traj = plan[1:]
+        
+        # check if goal is reached:
+        fa_pose_rigid = self.fa.get_pose()
+        fa_pose = get_posestamped(fa_pose_rigid.translation, [fa_pose_rigid.quaternion[1], fa_pose_rigid.quaternion[2], fa_pose_rigid.quaternion[3], fa_pose_rigid.quaternion[0]])
+        norm_diff = get_pose_norm(target_pose.pose, fa_pose.pose)
+        # print("Norm Diff: ", norm_diff)
+        if norm_diff < 0.05:
+            return None
+        
+        return interpolated_traj[0]
+        
+    def collect_trajectories_noisy(self, trajectory_limits_data, trajectory_num, reset_speed=RESET_SPEED):
+        """
+        Plans a path from a randomly joint pose to another randomly sampled joint pose
+        """
+        data = {"observations": [], "actions": [], "timestamps": [], "tool_poses": [], "target_poses": []}
+        target_pose = trajectory_limits_data["target_pose"]
+        
+        num_steps_cnfnd = trajectory_limits_data["num_steps_cnfnd"]
+        for i in range (trajectory_limits_data["n_trajectories"]):
+            print(f"--------------Recording Trajectory {i}--------------")
+
+            # set different seeds when recording train and eval trajectories
+            if trajectory_limits_data["eval_mode"]:
+                np.random.seed(1234*i)
+            else:
+                np.random.seed(i)
+                
+            # set variables for next_joint_planner
+            self.next_joint_itr = 0
+            
+            # sample a start pose and end pose for the trajectory
+            start_pose = self.sample_pose(trajectory_limits_data, target_pose)
+
+            # Move robot to start pose
+            self.goto_pose_moveit(start_pose, speed = reset_speed)
+            
+            rate = rospy.Rate(EXPERT_RECORD_FREQUENCY)
+            next_action = None
+            while next_action is None:
+                next_action = self.get_next_joint_planner(target_pose)
+            self.fa.goto_joints(next_action, duration=5, dynamic=True, buffer_time=30, ignore_virtual_walls=True)
+            init_time = rospy.Time.now().to_time()
+            
+            counter = 0
+            u_past = np.zeros((num_steps_cnfnd,1))
+
+            # Variables for recording data
+            obs, acts, timesteps, tool_poses_i = [], [], [], []
+            data["target_poses"].append(target_pose.pose)
+            while not rospy.is_shutdown():
+                if trajectory_limits_data["noise_type"] == "uniform":
+                    u = np.random.uniform(-trajectory_limits_data["noise_std"], trajectory_limits_data["noise_std"], 1)
+                elif trajectory_limits_data["noise_type"] == "gaussian":
+                    u = np.random.normal(0, trajectory_limits_data["noise_std"], 1)
+                else:
+                    u = 0
+                next_action = self.get_next_joint_planner(target_pose)
+                if next_action is None:
+                    break
+                noise = (1 * u + 1 * np.sum(u_past, axis=0))/1
+                next_action += noise
+                u_past = np.roll(u_past, 1, axis=0)
+                u_past[0,:] = u
+
+                # Record data
+                obs.append(self.fa.get_joints())
+                tool_poses_i.append(self.fa.get_pose())
+                acts.append(next_action)
+                timesteps.append(rospy.Time.now().to_nsec())
+
+                traj_gen_proto_msg = JointPositionSensorMessage(
+                    id=counter, timestamp=rospy.Time.now().to_time() - init_time, 
+                    joints=next_action
+                )
+                ros_msg = make_sensor_group_msg(
+                    trajectory_generator_sensor_msg=sensor_proto2ros_msg(
+                        traj_gen_proto_msg, SensorDataMessageType.JOINT_POSITION)
+                )
+                self.pub.publish(ros_msg)
+                counter += 1
+                rate.sleep()
+            
+            # Stop the skill
+            # Alternatively can call fa.stop_skill()
+            term_proto_msg = ShouldTerminateSensorMessage(timestamp=rospy.Time.now().to_time() - init_time, should_terminate=True)
+            ros_msg = make_sensor_group_msg(
+                termination_handler_sensor_msg=sensor_proto2ros_msg(
+                    term_proto_msg, SensorDataMessageType.SHOULD_TERMINATE)
+                )
+            
+            self.pub.publish(ros_msg)
+            self.fa.stop_skill()
+
+            # Stop recording data
             data["observations"].append(obs)
             data["actions"].append(acts)
             data["timestamps"].append(timesteps)
@@ -275,12 +419,6 @@ class moveit_planner():
             with open('/home/ros_ws/bags/recorded_trajectories/trajectories_' + str(trajectory_num) + '.pkl', 'wb') as f:
                 pickle.dump(data, f)
 
-            # Stop guide mode
-            self.fa.stop_skill()
-
-        self.fa.reset_joints()
-    
-   
 # Utility Functions
 def get_mat_norm(transform_mat1, transform_mat2):
     # pose1 and pose2 are of type PoseStamped
