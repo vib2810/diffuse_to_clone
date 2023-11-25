@@ -14,6 +14,7 @@ import copy
 from geometry_msgs.msg import PoseStamped, Pose
 import pickle
 import actionlib
+import os
 # from il_msgs.msg import RecordJointsAction, RecordJointsResult, RecordJointsGoal
 
 sys.path.append("/home/ros_ws/")
@@ -225,89 +226,10 @@ class MoveitPlanner():
             print("Start Norm Diff: ", get_pose_norm(sample_pose.pose, goal_pose))
         return sample_pose
 
-    def collect_trajectories_manual(self, trajectory_limits_dict, execute_func_record_data: dict, reset_speed=RESET_SPEED):
-        """
-        Function to collect manual data
-        """
-        target_pose_orig = get_posestamped(np.array([0.5, 0, 0.3]), np.array([1,0,0,0]))
-        for i in range (trajectory_limits_dict["n_trajectories"]):
-            print(f"--------------Recording Trajectory {i}--------------")
-            np.random.seed(i)
-            # sample a start pose and end pose for the trajectory
-            start_pose = self.sample_pose(trajectory_limits_dict, target_pose_orig)
-
-            # move robot to start pose
-            self.goto_pose_moveit(start_pose, speed = reset_speed)
-            
-            execute_func_record_data["record_joints"] = True
-            
-            print("Robot Put in Guide Mode")
-            # Put robot in run guide mode
-            self.fa.run_guide_mode(10000,block=False)
-
-            # sleep for 1 second to ensure robot is in guide mode
-            rospy.sleep(1)
-
-            # Record data till robot moves
-            last_joint_pose = self.fa.get_joints()
-            rate = rospy.Rate(2)
-            started = False
-            while not rospy.is_shutdown():
-                rate.sleep()
-                curr_joint_pose = self.fa.get_joints()
-                if np.linalg.norm(curr_joint_pose-last_joint_pose)>0.005 and not started:
-                    # Start recording data
-                    print("Starting Recording")
-                    action_goal = RecordJointsGoal()
-                    action_goal.start_msg.trajectory_num.data = execute_func_record_data["trajectory_num"]
-                    action_goal.start_msg.pose = target_pose_orig.pose
-                    execute_func_record_data["action_client"].send_goal(action_goal)
-                    started = True
-
-                if np.linalg.norm(curr_joint_pose-last_joint_pose)<1e-4 and started:
-                    # Stop recording data
-                    break
-                last_joint_pose = curr_joint_pose
-            
-            print("Finishing Recording")
-            execute_func_record_data["action_client"].cancel_goal()
-            execute_func_record_data["action_client"].wait_for_result()
-
-            # Stop guide mode
-            self.fa.stop_skill()
-
-        self.fa.reset_joints()
-
-    # Variables and Functions for NextJointUsingPlanner computation
-    next_joint_itr = 0
-    def interpolate_traj_dynamic(self, joints_traj, speed=1):
-        """
-        Deprecated. The next planner joint is directly used instead in get_next_joint_planner
-        Interpolates joints_traj by adding fixed number of points between each point
-        If itr<10, then the number of points added is increased to make the trajectory smoother
-        """
-        interpolated_traj = []
-        NUM_INTERP = 5 #fixed as planner returns points with norm ~0.035    
-        for i in range(1, joints_traj.shape[0]):
-            if i==1 and self.next_joint_itr<20 and False:
-                NUM_INTERP_SLOW = int((NUM_INTERP-0.15*self.next_joint_itr) *2.5)//speed
-                t_interp = np.linspace(1/NUM_INTERP_SLOW, 1, NUM_INTERP_SLOW)
-                t_interp = t_interp**2
-            else:
-                NUM_INTERP_NORMAL = NUM_INTERP//speed #fixed as planner returns points with norm ~0.035 
-                t_interp = np.linspace(1/NUM_INTERP_NORMAL, 1, NUM_INTERP_NORMAL) # linear
-
-            for t_i in range(len(t_interp)):
-                dt = t_interp[t_i]
-                interp_traj_i = joints_traj[i,:]*dt + joints_traj[i-1,:]*(1-dt)
-                interpolated_traj.append(interp_traj_i)
-        
-        interpolated_traj = np.array(interpolated_traj)
-        return interpolated_traj
-
     def get_next_joint_planner(self, target_pose: Pose):
-        self.next_joint_itr += 1
-
+        """
+        Returns the next joint position to goto from the current position of the robot given a target pose 
+        """
         pose_goal = self.get_moveit_pose_given_frankapy_pose(target_pose.pose)
         plan = self.get_straight_plan_given_pose(pose_goal)
         if len(plan) == 1:
@@ -315,74 +237,132 @@ class MoveitPlanner():
         else:
             interpolated_traj = plan[1:]
         
-        # check if goal is reached:
-        fa_pose_rigid = self.fa.get_pose()
-        fa_pose = get_posestamped(fa_pose_rigid.translation, [fa_pose_rigid.quaternion[1], fa_pose_rigid.quaternion[2], fa_pose_rigid.quaternion[3], fa_pose_rigid.quaternion[0]])
-        norm_diff = get_pose_norm(target_pose.pose, fa_pose.pose)
-        # print("Norm Diff: ", norm_diff)
-        if norm_diff < 0.05:
-            return None
-        
         return interpolated_traj[0]
+
+    def get_pose_norm(self, target_pose: Pose, fa_rigid):
+        """
+        Returns the norm of the difference between the fa_rigid and target_pose
+        """
+        fa_pose = get_posestamped(fa_rigid.translation, [fa_rigid.quaternion[1], fa_rigid.quaternion[2], fa_rigid.quaternion[3], fa_rigid.quaternion[0]])
+        norm_diff = get_pose_norm(target_pose.pose, fa_pose.pose)
+        return norm_diff
+
+    current_toy_state = 0 #0: pick, 1: grasp, 2: goto hover place, 3: goto_place, 4: ungrasp
+    FINAL_GRIPPER_WIDTH=0.01 # gripper width ranges from 0 to 0.08
+    def get_next_joint_planner_toy(self, pick_pose: PoseStamped, place_pose: PoseStamped, curr_joints, curr_pose, curr_gripper_width):
+        """
+        Takes as input the current robot joints, pose and gripper width
+        Returns the next joint position for the toy task
+        Returns: next_action(7x1), gripper_width
+        """
+        if self.current_toy_state == 0: # pick
+            # check if arrived at pick pose
+            if self.get_pose_norm(pick_pose, curr_pose) < 0.05:
+                self.current_toy_state = 1
+                print("Arrived at pick pose")
+                return self.get_next_joint_planner_toy(pick_pose, place_pose, curr_joints, curr_pose, curr_gripper_width)
+            
+            # plan to pick pose
+            next_action = self.get_next_joint_planner(pick_pose)
+            return next_action, curr_gripper_width
         
-    def collect_trajectories_noisy(self, trajectory_limits_data, trajectory_num, reset_speed=RESET_SPEED):
+        elif self.current_toy_state == 1: # grasp
+            # check if current gripper width is less than FINAL_GRIPPER_WIDTH
+            if curr_gripper_width < self.FINAL_GRIPPER_WIDTH:
+                self.current_toy_state = 2
+                print("Gripper Closed")
+                return self.get_next_joint_planner_toy(pick_pose, place_pose, curr_joints, curr_pose, curr_gripper_width)
+        
+            # close gripper for 0.01 m
+            next_gripper_width = curr_gripper_width - 0.01
+            return curr_joints, next_gripper_width
+        
+        elif self.current_toy_state == 2: # goto hover place
+            hover_pose = copy.deepcopy(place_pose)
+            hover_pose.pose.position.z += 0.1
+            # check if arrived at hover place pose
+            if self.get_pose_norm(hover_pose) < 0.05:
+                self.current_toy_state = 3
+                print("Arrived at hover place pose")
+                return self.get_next_joint_planner_toy(pick_pose, place_pose, curr_joints, curr_pose, curr_gripper_width)
+
+            # plan to hover place pose
+            next_action = self.get_next_joint_planner(hover_pose)
+            return next_action, curr_gripper_width
+        
+        elif self.current_toy_state == 3: # goto place
+            # check if arrived at place pose
+            if self.get_pose_norm(place_pose) < 0.05:
+                self.current_toy_state = 4
+                print("Arrived at place pose")
+                return self.get_next_joint_planner_toy(pick_pose, place_pose)
+            
+            # plan to place pose
+            next_action = self.get_next_joint_planner(place_pose)
+            return next_action, curr_gripper_width
+        
+        elif self.current_toy_state == 4: # ungrasp
+            # check if current gripper width is more than FINAL_GRIPPER_WIDTH
+            if curr_gripper_width > 0.07:
+                self.current_toy_state = 0
+                print("Gripper Opened, action complete")
+                return None, None
+            
+            # open gripper for 0.01 m
+            next_gripper_width = curr_gripper_width + 0.01
+            return curr_joints, next_gripper_width
+        
+        else:
+            print("Invalid State")
+            return None, None
+                            
+    def collect_toy_trajectories(self, expt_data_dict):
         """
         Plans a path from a randomly joint pose to another randomly sampled joint pose
         """
-        data = {"observations": [], "actions": [], "timestamps": [], "tool_poses": [], "target_poses": []}
-        target_pose = trajectory_limits_data["target_pose"]
-        
-        num_steps_cnfnd = trajectory_limits_data["num_steps_cnfnd"]
-        for i in range (trajectory_limits_data["n_trajectories"]):
+        pick_pose = expt_data_dict["pick_pose"]
+        place_pose = expt_data_dict["place_pose"]
+        expt_folder = '/home/ros_ws/bags/recorded_trajectories/'+ expt_data_dict["experiment_name"]
+        if not os.path.exists(expt_folder):
+            os.makedirs(expt_folder)
+
+        for i in range (expt_data_dict["n_trajectories"]):
             print(f"--------------Recording Trajectory {i}--------------")
 
             # set different seeds when recording train and eval trajectories
-            if trajectory_limits_data["eval_mode"]:
+            if expt_data_dict["eval_mode"]:
                 np.random.seed(1234*i)
             else:
                 np.random.seed(i)
                 
-            # set variables for next_joint_planner
-            self.next_joint_itr = 0
-            
-            # sample a start pose and end pose for the trajectory
-            start_pose = self.sample_pose(trajectory_limits_data, target_pose)
-
-            # Move robot to start pose
-            self.goto_pose_moveit(start_pose, speed = reset_speed)
+            # reset to home position
+            self.current_toy_state = 0
+            self.fa.reset_joints()
             
             rate = rospy.Rate(EXPERT_RECORD_FREQUENCY)
             next_action = None
             while next_action is None:
-                next_action = self.get_next_joint_planner(target_pose)
+                next_action, _ = self.get_next_joint_planner_toy(pick_pose, place_pose)
             self.fa.goto_joints(next_action, duration=5, dynamic=True, buffer_time=30, ignore_virtual_walls=True)
             init_time = rospy.Time.now().to_time()
             
-            counter = 0
-            u_past = np.zeros((num_steps_cnfnd,1))
-
             # Variables for recording data
             obs, acts, timesteps, tool_poses_i = [], [], [], []
-            data["target_poses"].append(target_pose.pose)
+
+            # Start recording data
+            counter = 0
             while not rospy.is_shutdown():
-                if trajectory_limits_data["noise_type"] == "uniform":
-                    u = np.random.uniform(-trajectory_limits_data["noise_std"], trajectory_limits_data["noise_std"], 1)
-                elif trajectory_limits_data["noise_type"] == "gaussian":
-                    u = np.random.normal(0, trajectory_limits_data["noise_std"], 1)
-                else:
-                    u = 0
-                next_action = self.get_next_joint_planner(target_pose)
-                if next_action is None:
+                curr_joints = self.fa.get_joints()
+                curr_pose = self.fa.get_pose()
+                curr_gripper_width = self.fa.get_gripper_width()
+                next_action, next_gripper = self.get_next_joint_planner_toy(pick_pose, place_pose, curr_joints, curr_pose, curr_gripper_width)
+                if next_action is None and next_gripper is None:
                     break
-                noise = (1 * u + 1 * np.sum(u_past, axis=0))/1
-                next_action += noise
-                u_past = np.roll(u_past, 1, axis=0)
-                u_past[0,:] = u
 
                 # Record data
-                obs.append(self.fa.get_joints())
-                tool_poses_i.append(self.fa.get_pose())
-                acts.append(next_action)
+                obs.append(np.array([curr_joints, curr_gripper_width]))
+                tool_poses_i.append(curr_pose)
+                acts.append([next_action, next_gripper])
                 timesteps.append(rospy.Time.now().to_nsec())
 
                 traj_gen_proto_msg = JointPositionSensorMessage(
@@ -394,6 +374,9 @@ class MoveitPlanner():
                         traj_gen_proto_msg, SensorDataMessageType.JOINT_POSITION)
                 )
                 self.pub.publish(ros_msg)
+
+                # gripper actuate
+                self.fa.goto_gripper(next_gripper, duration=1/EXPERT_RECORD_FREQUENCY, block=False, speed=0.1)
                 counter += 1
                 rate.sleep()
             
@@ -409,15 +392,30 @@ class MoveitPlanner():
             self.fa.stop_skill()
 
             # Stop recording data
-            data["observations"].append(obs)
-            data["actions"].append(acts)
-            data["timestamps"].append(timesteps)
-            data["tool_poses"].append(tool_poses_i)
+            data = {
+                "observations": obs,
+                "actions": acts,
+                "timestamps": timesteps,
+                "tool_poses": tool_poses_i
+            }
             print("Recorded Trajectory of length: ", len(obs))
-
+            
+            # Get the next trajectory number to store the data to
+            traj_nums = []
+            for file in os.listdir(expt_folder):
+                if file.endswith(".pkl"):
+                    traj_nums.append(int(file.split("_")[-1].split(".")[0])) # get the number after the last underscore and before the .pkl
+            if len(traj_nums) == 0:
+                traj_num = 0
+            else:
+                traj_num = max(traj_nums)+1
+            
+            print("Saving Trajectory: ", traj_num)
+                
             # Save data
-            with open('/home/ros_ws/bags/recorded_trajectories/trajectories_' + str(trajectory_num) + '.pkl', 'wb') as f:
+            with open('/home/ros_ws/bags/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/'+ expt_data_dict["experiment_name"] + '_' + str(traj_num) + '.pkl', 'wb') as f:
                 pickle.dump(data, f)
+
 
 # Utility Functions
 def get_mat_norm(transform_mat1, transform_mat2):
