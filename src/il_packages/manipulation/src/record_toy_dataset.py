@@ -15,7 +15,6 @@ from geometry_msgs.msg import PoseStamped
 import pickle
 import actionlib
 import yaml
-from il_msgs.msg import RecordJointsAction, RecordJointsResult, RecordJointsGoal
 import os
 
 sys.path.append("/home/ros_ws/src/il_packages/manipulation/src")
@@ -49,20 +48,22 @@ if __name__ == "__main__":
     franka_moveit = MoveitPlanner()
 
     # Reset Joints
-    franka_moveit.reset_joints()
+    # franka_moveit.reset_joints()
 
     # Collect trajectories
     expt_data_dict = {}
     expt_data_dict["experiment_name"] = "toy_expt_"+ experiment_name
     expt_data_dict["n_trajectories"] = num_trajs_to_collect
     expt_data_dict["eval_mode"] = eval_mode
-    expt_data_dict["pick_pose"] = get_posestamped(np.array([0.5, 0, 0.3]), np.array([1,0,0,0]))
-    expt_data_dict["place_pose"] = get_posestamped(np.array([0.5, 0.2, 0.3]), np.array([1,0,0,0]))
+    expt_data_dict["pick_pose"] = get_posestamped(np.array([0.52, -0.24537024, 0.008]),
+                                                  np.array([1,0,0,0]))
+    expt_data_dict["place_pose"] = get_posestamped(np.array([0.52, 0.15177857, 0.008]),
+                                                   np.array([1,0,0,0]))
 
         
     print("Collecting Experiment with Config:\n ", expt_data_dict)
     
-    franka_moveit.collect_toy_trajectories(expt_data_dict)
+    franka_moveit.collect_toy_trajectories_joints(expt_data_dict)
 
     print("Trajectories Collected")
     franka_moveit.fa.reset_joints()
