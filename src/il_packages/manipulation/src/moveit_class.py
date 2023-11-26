@@ -10,6 +10,7 @@ import numpy as np
 from moveit_msgs.msg import PlanningScene, CollisionObject
 from shape_msgs.msg import SolidPrimitive, Mesh
 import scipy.spatial.transform as spt
+from scipy.spatial.transform import Rotation as R
 import copy
 from geometry_msgs.msg import PoseStamped, Pose
 import pickle
@@ -238,8 +239,41 @@ class MoveitPlanner():
             interpolated_traj = plan[1:]
         
         return interpolated_traj[0]
+    
+    def get_next_joint_planner_interpolate(self, target_pose: Pose):
+        """
+        Returns the next tool pose to goto from the current pose of the robot given a target pose 
+        """
+        current_pose = self.fa.get_pose()
+        current_position = np.array([current_pose.translation.x, current_pose.translation.y, current_pose.translation.z])
+        r = R.from_quat([current_pose.quaternion[1], current_pose.quaternion[2], current_pose.quaternion[3], current_pose.quaternion[0]])
+        current_orientation = r.as_euler('zyx', degrees=True)
+        print("Current Pose: ", current_position, current_orientation)
 
-    def get_pose_norm(self, target_pose: Pose, fa_rigid):
+        target_position = np.array([target_pose.position.x, target_pose.position.y, target_pose.position.z])
+        r = R.from_quat([target_pose.orientation[0], target_pose.orientation[1], target_pose.orientation[2], target_pose.orientation[3]])
+        target_orientation = r.as_euler('zyx', degrees=True)
+        print("Target Pose: ", target_position, target_orientation)
+        
+        unit_diff_in_position = (target_position - current_position) / np.linalg.norm(target_position - current_position)
+        if np.linalg.norm(target_position - current_position) < 0.005:
+            next_position = target_position
+        else:
+            next_position = current_position + 0.005*unit_diff_in_position
+
+        diff_in_yaw_deg = target_orientation[0] - current_orientation[0]
+        if diff_in_yaw_deg < 0.5:
+            next_yaw_in_deg = target_orientation[0]
+        else:
+            next_yaw_in_deg = current_orientation[0] + np.sign(diff_in_yaw_deg)*0.5
+
+        r = R.from_euler('z', next_yaw_in_deg, degrees=True)
+        next_orientation = r.as_quat()
+
+        next_pose = Pose(position=next_position, orientation=next_orientation)
+        return next_pose
+
+    def get_current_pose_norm(self, target_pose: Pose, fa_rigid):
         """
         Returns the norm of the difference between the fa_rigid and target_pose
         """
