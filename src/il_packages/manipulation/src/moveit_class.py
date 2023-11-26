@@ -16,6 +16,7 @@ from geometry_msgs.msg import PoseStamped, Pose
 import pickle
 import actionlib
 import os
+from frankapy.proto import PosePositionSensorMessage, ShouldTerminateSensorMessage, CartesianImpedanceSensorMessage
 # from il_msgs.msg import RecordJointsAction, RecordJointsResult, RecordJointsGoal
 
 sys.path.append("/home/ros_ws/")
@@ -226,27 +227,13 @@ class MoveitPlanner():
         else:
             print("Start Norm Diff: ", get_pose_norm(sample_pose.pose, goal_pose))
         return sample_pose
-
-    def get_next_joint_planner(self, target_pose: Pose):
-        """
-        Returns the next joint position to goto from the current position of the robot given a target pose 
-        """
-        pose_goal = self.get_moveit_pose_given_frankapy_pose(target_pose.pose)
-        plan = self.get_straight_plan_given_pose(pose_goal)
-        if len(plan) == 1:
-            interpolated_traj= plan
-        else:
-            interpolated_traj = plan[1:]
-        
-        return interpolated_traj[0]
     
-    def get_next_joint_planner_interpolate(self, target_pose: Pose):
+    def get_next_pose_interp(self, target_pose: Pose, curr_pose: Pose):
         """
         Returns the next tool pose to goto from the current pose of the robot given a target pose 
         """
-        current_pose = self.fa.get_pose()
-        current_position = np.array([current_pose.translation.x, current_pose.translation.y, current_pose.translation.z])
-        r = R.from_quat([current_pose.quaternion[1], current_pose.quaternion[2], current_pose.quaternion[3], current_pose.quaternion[0]])
+        current_position = np.array([curr_pose.position.x, curr_pose.position.y, curr_pose.position.z])
+        r = R.from_quat([curr_pose.orientation.x, curr_pose.orientation.y, curr_pose.orientation.z, curr_pose.orientation.w])
         current_orientation = r.as_euler('zyx', degrees=True)
         print("Current Pose: ", current_position, current_orientation)
 
@@ -262,7 +249,7 @@ class MoveitPlanner():
             next_position = current_position + 0.005*unit_diff_in_position
 
         diff_in_yaw_deg = target_orientation[0] - current_orientation[0]
-        if diff_in_yaw_deg < 0.5:
+        if abs(diff_in_yaw_deg) < 0.5:
             next_yaw_in_deg = target_orientation[0]
         else:
             next_yaw_in_deg = current_orientation[0] + np.sign(diff_in_yaw_deg)*0.5
@@ -282,8 +269,8 @@ class MoveitPlanner():
         return norm_diff
 
     current_toy_state = 0 #0: pick, 1: grasp, 2: goto hover place, 3: goto_place, 4: ungrasp
-    FINAL_GRIPPER_WIDTH=0.01 # gripper width ranges from 0 to 0.08
-    def get_next_joint_planner_toy(self, pick_pose: PoseStamped, place_pose: PoseStamped, curr_joints, curr_pose, curr_gripper_width):
+    FINAL_GRIPPER_WIDTH=0.01 # gripper width ranges from 0 to 0.08    
+    def get_next_joint_planner_toy_joints(self, pick_pose: PoseStamped, place_pose: PoseStamped, curr_pose: Pose, curr_gripper_width = float):
         """
         Takes as input the current robot joints, pose and gripper width
         Returns the next joint position for the toy task
@@ -294,10 +281,10 @@ class MoveitPlanner():
             if self.get_pose_norm(pick_pose, curr_pose) < 0.05:
                 self.current_toy_state = 1
                 print("Arrived at pick pose")
-                return self.get_next_joint_planner_toy(pick_pose, place_pose, curr_joints, curr_pose, curr_gripper_width)
+                return self.get_next_joint_planner_toy_joints(pick_pose, place_pose, curr_pose, curr_gripper_width)
             
             # plan to pick pose
-            next_action = self.get_next_joint_planner(pick_pose)
+            next_action = self.get_next_pose_interp(pick_pose, curr_pose)
             return next_action, curr_gripper_width
         
         elif self.current_toy_state == 1: # grasp
@@ -305,11 +292,11 @@ class MoveitPlanner():
             if curr_gripper_width < self.FINAL_GRIPPER_WIDTH:
                 self.current_toy_state = 2
                 print("Gripper Closed")
-                return self.get_next_joint_planner_toy(pick_pose, place_pose, curr_joints, curr_pose, curr_gripper_width)
+                return self.get_next_joint_planner_toy_joints(pick_pose, place_pose, curr_pose, curr_gripper_width)
         
             # close gripper for 0.01 m
             next_gripper_width = curr_gripper_width - 0.01
-            return curr_joints, next_gripper_width
+            return curr_pose, next_gripper_width
         
         elif self.current_toy_state == 2: # goto hover place
             hover_pose = copy.deepcopy(place_pose)
@@ -318,10 +305,10 @@ class MoveitPlanner():
             if self.get_pose_norm(hover_pose) < 0.05:
                 self.current_toy_state = 3
                 print("Arrived at hover place pose")
-                return self.get_next_joint_planner_toy(pick_pose, place_pose, curr_joints, curr_pose, curr_gripper_width)
+                return self.get_next_joint_planner_toy_joints(pick_pose, place_pose, curr_pose, curr_gripper_width)
 
             # plan to hover place pose
-            next_action = self.get_next_joint_planner(hover_pose)
+            next_action = self.get_next_pose_interp(hover_pose, curr_pose)
             return next_action, curr_gripper_width
         
         elif self.current_toy_state == 3: # goto place
@@ -329,10 +316,10 @@ class MoveitPlanner():
             if self.get_pose_norm(place_pose) < 0.05:
                 self.current_toy_state = 4
                 print("Arrived at place pose")
-                return self.get_next_joint_planner_toy(pick_pose, place_pose)
+                return self.get_next_joint_planner_toy_joints(pick_pose, place_pose)
             
             # plan to place pose
-            next_action = self.get_next_joint_planner(place_pose)
+            next_action = self.get_next_pose_interp(place_pose, curr_pose)
             return next_action, curr_gripper_width
         
         elif self.current_toy_state == 4: # ungrasp
@@ -344,13 +331,13 @@ class MoveitPlanner():
             
             # open gripper for 0.01 m
             next_gripper_width = curr_gripper_width + 0.01
-            return curr_joints, next_gripper_width
+            return curr_pose, next_gripper_width
         
         else:
             print("Invalid State")
             return None, None
-                            
-    def collect_toy_trajectories(self, expt_data_dict):
+    
+    def collect_toy_trajectories_joints(self, expt_data_dict):
         """
         Plans a path from a randomly joint pose to another randomly sampled joint pose
         """
@@ -374,38 +361,45 @@ class MoveitPlanner():
             self.fa.reset_joints()
             
             rate = rospy.Rate(EXPERT_RECORD_FREQUENCY)
-            next_action = None
-            while next_action is None:
-                next_action, _ = self.get_next_joint_planner_toy(pick_pose, place_pose)
-            self.fa.goto_joints(next_action, duration=5, dynamic=True, buffer_time=30, ignore_virtual_walls=True)
-            init_time = rospy.Time.now().to_time()
-            
+            self.fa.goto_pose(self.fa.get_pose(), duration=120, dynamic=True, buffer_time=10,
+                cartesian_impedances=FC.DEFAULT_TRANSLATIONAL_STIFFNESSES[:3] + FC.DEFAULT_ROTATIONAL_STIFFNESSES)
+        
             # Variables for recording data
             obs, acts, timesteps, tool_poses_i = [], [], [], []
 
             # Start recording data
             counter = 0
+            init_time = rospy.Time.now().to_time()
             while not rospy.is_shutdown():
                 curr_joints = self.fa.get_joints()
-                curr_pose = self.fa.get_pose()
+                curr_pose_rigid = self.fa.get_pose()
+                curr_pose = get_posestamped(curr_pose_rigid.translation, [curr_pose_rigid.quaternion[1], curr_pose_rigid.quaternion[2], curr_pose_rigid.quaternion[3], curr_pose_rigid.quaternion[0]]).pose
                 curr_gripper_width = self.fa.get_gripper_width()
-                next_action, next_gripper = self.get_next_joint_planner_toy(pick_pose, place_pose, curr_joints, curr_pose, curr_gripper_width)
-                if next_action is None and next_gripper is None:
+                next_pose, next_gripper = self.get_next_joint_planner_toy_joints(pick_pose, place_pose, curr_pose, curr_gripper_width)
+                if next_pose is None and next_gripper is None:
                     break
 
                 # Record data
-                obs.append(np.array([curr_joints, curr_gripper_width]))
+                obs.append(np.array([curr_joints.tolist(), curr_gripper_width]))
                 tool_poses_i.append(curr_pose)
-                acts.append([next_action, next_gripper])
+                acts.append(np.array([next_pose.tolist(), next_gripper]))
                 timesteps.append(rospy.Time.now().to_nsec())
-
-                traj_gen_proto_msg = JointPositionSensorMessage(
-                    id=counter, timestamp=rospy.Time.now().to_time() - init_time, 
-                    joints=next_action
+                
+                timestamp = rospy.Time.now().to_time() - init_time
+                traj_gen_proto_msg = PosePositionSensorMessage(
+                    id=self.idx, timestamp=timestamp, 
+                    position=next_pose.position, orientation=[next_pose.orientation.w, next_pose.orientation.x, next_pose.orientation.y, next_pose.orientation.z]
+                )
+                fb_ctrlr_proto = CartesianImpedanceSensorMessage(
+                    id=self.idx, timestamp=timestamp,
+                    translational_stiffnesses=FC.DEFAULT_TRANSLATIONAL_STIFFNESSES[:3],
+                    rotational_stiffnesses=FC.DEFAULT_ROTATIONAL_STIFFNESSES
                 )
                 ros_msg = make_sensor_group_msg(
                     trajectory_generator_sensor_msg=sensor_proto2ros_msg(
-                        traj_gen_proto_msg, SensorDataMessageType.JOINT_POSITION)
+                        traj_gen_proto_msg, SensorDataMessageType.POSE_POSITION),
+                    feedback_controller_sensor_msg=sensor_proto2ros_msg(
+                        fb_ctrlr_proto, SensorDataMessageType.CARTESIAN_IMPEDANCE)
                 )
                 self.pub.publish(ros_msg)
 
