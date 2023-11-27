@@ -34,6 +34,7 @@ class DiffusionTrainer(nn.Module):
         super().__init__()
 
         dataset_path = '/home/ros_ws/dataset/data/toy_expt_first_try'
+        self.is_state_based = True
 
         # parameters
         self.pred_horizon = 16
@@ -50,6 +51,7 @@ class DiffusionTrainer(nn.Module):
             obs_horizon=self.obs_horizon,
             action_horizon=self.action_horizon
         )
+ 
         # save training data statistics (min, max) for each dim
         self.stats = dataset.stats
 
@@ -72,11 +74,14 @@ class DiffusionTrainer(nn.Module):
         # ResNet18 has output dim of 512
         vision_feature_dim = 512
         # agent_pos is 2 dimensional
-        lowdim_obs_dim = 2
+        lowdim_obs_dim = 8
         # observation feature has 514 dims in total per step
         self.obs_dim = vision_feature_dim + lowdim_obs_dim
-        self.action_dim = 2
+        self.action_dim = 8
 
+        # if(self.is_state_based):
+        #     self.obs_dim = 8 # no images
+        
         # create network object
         self.noise_pred_net = ConditionalUnet1D(
             input_dim=self.action_dim,
@@ -181,9 +186,17 @@ class DiffusionTrainer(nn.Module):
                     for nbatch in tepoch:
                         # data normalized in dataset
                         # device transfer
-                        nimage = nbatch['image'][:,:self.obs_horizon].to(self.device)
-                        nagent_pos = nbatch['agent_pos'][:,:self.obs_horizon].to(self.device)
-                        naction = nbatch['action'].to(self.device)
+
+                        # convert ti float 32
+                        nbatch = {k: v.float() for k, v in nbatch.items()}
+                      
+                        if(self.is_state_based):
+                            nimage = torch.zeros((nbatch['states'].shape[0], self.obs_horizon,3,96,96)).to(self.device)
+                        else:
+                            nimage = nbatch['image'][:,:self.obs_horizon].to(self.device)
+                  
+                        nagent_pos = nbatch['states'][:,:self.obs_horizon].to(self.device)
+                        naction = nbatch['actions'].to(self.device)
                         B = nagent_pos.shape[0]
 
                         # encoder vision features
@@ -239,7 +252,6 @@ class DiffusionTrainer(nn.Module):
         # Weights of the EMA model
         # is used for inference
         ema_nets = self.ema.averaged_model
-
 
     
     def run_inference_demo(self,):

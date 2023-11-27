@@ -133,7 +133,7 @@ class DiffusionDataset(torch.utils.data.Dataset):
             sample_start_idx, sample_end_idx = self.indices[idx]
 
         # get nomralized data using these indices
-        do_not_sample = ['images'] # Not present rn
+        do_not_sample = ['images','episode_ends'] # Not present rn
         nsample = sample_sequence(
             train_data=self.normalized_train_data,
             sequence_length=self.pred_horizon,
@@ -145,11 +145,19 @@ class DiffusionDataset(torch.utils.data.Dataset):
         )
 
         # discard unused observations
-        nsample['image'] = nsample['image'][:self.obs_horizon,:]
-        nsample['agent_pos'] = nsample['agent_pos'][:self.obs_horizon,:]
+        if(self.is_img_available):
+            nsample['image'] = nsample['image'][:self.obs_horizon,:]
+
+        nsample['states'] = nsample['states'][:self.obs_horizon,:]
+        nsample['states'] = nsample['states'].astype(np.float64)
+
+        ### print dtype of all keys
+        # for key, data in nsample.items():
+        #     print("Key: ", key, ", dtype: ", data.dtype)
+        #     # print("states", nsample['states'])
+
         return nsample
-
-
+    
 
 if __name__=="__main__":
     dataset_path = '/home/ros_ws/dataset/data/toy_expt_first_try'
