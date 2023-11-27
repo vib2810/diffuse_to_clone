@@ -23,6 +23,7 @@ RUN apt install ros-noetic-aruco-ros -y
 RUN apt-get update && apt-get install -y python3-pip libopenblas-dev libopenmpi-dev
 RUN pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 RUN pip3 install ultralytics==8.0.28
+RUN apt install ros-noetic-audio-common -y
 
 # mount src folder from desktop to /home/ros_ws/src
 COPY src/il_packages /home/ros_ws/src/il_packages
@@ -32,7 +33,6 @@ RUN cd /home/ros_ws/src/git_packages && git clone --recursive https://github.com
         && git clone https://github.com/ros-planning/panda_moveit_config.git -b noetic-devel \
         && git clone https://github.com/IFL-CAMP/easy_handeye
 
-RUN apt install ros-noetic-audio-common -y
 
 #rosdep install on src folder
 RUN /bin/bash -c "source /opt/ros/noetic/setup.bash; cd /home/ros_ws; rosdep install --from-paths src --ignore-src -r -y"
