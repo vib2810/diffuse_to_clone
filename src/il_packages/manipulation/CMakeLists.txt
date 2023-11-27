@@ -31,12 +31,12 @@ catkin_install_python(PROGRAMS
 )
 
 catkin_install_python(PROGRAMS
-  src/record_trajectories_moveit.py
+  src/robot_joint_converter.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
 catkin_install_python(PROGRAMS
-  src/robot_joint_converter.py
+  src/record_toy_dataset.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
