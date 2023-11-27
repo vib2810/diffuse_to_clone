@@ -36,12 +36,13 @@ class DiffusionDataset(torch.utils.data.Dataset):
                  dataset_path: str,
                  pred_horizon: int,
                  obs_horizon: int,
-                 action_horizon: int):
+                 action_horizon: int,
+                 is_state_based: bool = True):
 
         # read all pkl files one by one
         files = [os.path.join(dataset_path, f) for f in os.listdir(dataset_path) if f.endswith('.pkl')]
         train_data = initialize_data()
-        self.is_img_available = False
+        self.is_img_available = not is_state_based
 
         episode_ends = []
         for file in files:
@@ -73,8 +74,18 @@ class DiffusionDataset(torch.utils.data.Dataset):
         train_data['images'] = np.array(train_data['images'])
         train_data['episode_ends'] = np.array(episode_ends)
 
+        ### Store some stats about training data
         print_data_dict(train_data)
+        
+        self.state_dim = train_data['states'].shape[1]
+        self.action_dim = train_data['actions'].shape[1]
 
+        if(self.is_img_available):
+            self.image_feat_dim = train_data['images'].shape[1]
+        else:
+            self.image_feat_dim = 0
+
+        self.obs_dim = self.state_dim + self.image_feat_dim
 
         # # float32, [0,1], (N,96,96,3)
         # train_image_data = dataset_root['data']['img'][:]

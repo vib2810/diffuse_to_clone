@@ -1,6 +1,9 @@
 # Author: Abhinav Gupta ag6@andrew.cmu.edu
 #!/usr/bin/env python3
 
+import sys
+sys.path.append("/home/ros_ws/")
+sys.path.append("/home/ros_ws/dataset")
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,19 +12,14 @@ import itertools
 import pickle
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
-import sys
-sys.path.append("/home/ros_ws/")
-sys.path.append("/home/ros_ws/dataset")
 from dataset.dataset import DiffusionDataset
 from dataset.data_utils import *
 from diffusion_model_vision import *
-
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.training_utils import EMAModel
 from diffusers.optimization import get_scheduler
 from tqdm.auto import tqdm
 import collections
-
 import cv2
 import skimage.transform as st
 from skvideo.io import vwrite
@@ -40,9 +38,6 @@ class DiffusionTrainer(nn.Module):
         self.pred_horizon = 16
         self.obs_horizon = 2
         self.action_horizon = 8
-        #|o|o|                             observations: 2
-        #| |a|a|a|a|a|a|a|a|               actions executed: 8
-        #|p|p|p|p|p|p|p|p|p|p|p|p|p|p|p|p| actions predicted: 16
 
         # create dataset from file
         dataset = DiffusionDataset(
@@ -66,8 +61,6 @@ class DiffusionTrainer(nn.Module):
             # don't kill worker process afte each epoch
             persistent_workers=True
         )
-
-        #@markdown ### **Network Demo**
 
         self.vision_encoder = get_vision_encoder('resnet18')
 
