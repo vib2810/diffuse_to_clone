@@ -62,22 +62,20 @@ class DiffusionDataset(torch.utils.data.Dataset):
             episode_ends.append(episode_length-1) # index at which ends
             
             # Store in global dictionary for all data
-            train_data['states'].extend(state_data)
+            train_data['nagent_pos'].extend(state_data)
             train_data['actions'].extend(actions_data)
-            train_data['tool_poses'].extend(tool_poses_data)
             train_data['images'].extend(image_data)
 
         # print train_data dict stats
-        train_data['states'] = np.array(train_data['states'])
+        train_data['nagent_pos'] = np.array(train_data['nagent_pos'])
         train_data['actions'] = np.array(train_data['actions'])
-        train_data['tool_poses'] = np.array(train_data['tool_poses'])
         train_data['images'] = np.array(train_data['images'])
         train_data['episode_ends'] = np.array(episode_ends)
 
         ### Store some stats about training data
-        print_data_dict(train_data)
+        print_data_dict_shapes(train_data)
         
-        self.state_dim = train_data['states'].shape[1]
+        self.state_dim = train_data['nagent_pos'].shape[1]
         self.action_dim = train_data['actions'].shape[1]
 
         if(self.is_img_available):
@@ -159,13 +157,13 @@ class DiffusionDataset(torch.utils.data.Dataset):
         if(self.is_img_available):
             nsample['image'] = nsample['image'][:self.obs_horizon,:]
 
-        nsample['states'] = nsample['states'][:self.obs_horizon,:]
-        nsample['states'] = nsample['states'].astype(np.float64)
+        nsample['nagent_pos'] = nsample['nagent_pos'][:self.obs_horizon,:]
+        nsample['nagent_pos'] = nsample['nagent_pos'].astype(np.float64)
 
         ### print dtype of all keys
         # for key, data in nsample.items():
         #     print("Key: ", key, ", dtype: ", data.dtype)
-        #     # print("states", nsample['states'])
+        #     # print("states", nsample['nagent_pos'])
 
         return nsample
     

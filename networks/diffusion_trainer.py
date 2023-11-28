@@ -184,11 +184,11 @@ class DiffusionTrainer(nn.Module):
                         nbatch = {k: v.float() for k, v in nbatch.items()}
                       
                         if(self.is_state_based):
-                            nimage = torch.zeros((nbatch['states'].shape[0], self.obs_horizon,3,96,96)).to(self.device)
+                            nimage = torch.zeros((nbatch['nagent_pos'].shape[0], self.obs_horizon,3,96,96)).to(self.device)
                         else:
                             nimage = nbatch['image'][:,:self.obs_horizon].to(self.device)
                   
-                        nagent_pos = nbatch['states'][:,:self.obs_horizon].to(self.device)
+                        nagent_pos = nbatch['nagent_pos'][:,:self.obs_horizon].to(self.device)
                         naction = nbatch['actions'].to(self.device)
                         B = nagent_pos.shape[0]
 

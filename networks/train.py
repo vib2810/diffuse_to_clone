@@ -42,7 +42,7 @@ if __name__ == "__main__":
         'use_stats': False,
         'model_class': DiffusionTrainer,
         'num_diffusion_iters': 100,
-        'noise_scheduler': 'DDPM',
+        'num_ddim_iters': 10, # for DDIM sampling
         'device': 'cuda:0',
     }
 

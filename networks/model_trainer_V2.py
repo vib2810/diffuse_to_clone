@@ -114,11 +114,11 @@ class ModelTrainer:
                         nbatch = {k: v.float() for k, v in nbatch.items()}
                       
                         if(self.is_state_based):
-                            nimage = torch.zeros((nbatch['states'].shape[0], self.train_params['obs_horizon'],3,96,96)).to(self.device)
+                            nimage = None
                         else:
                             nimage = nbatch['image'][:,:self.train_params['obs_horizon']].to(self.device)
                   
-                        nagent_pos = nbatch['states'][:,:self.train_params['obs_horizon']].to(self.device)
+                        nagent_pos = nbatch['nagent_pos'][:,:self.train_params['obs_horizon']].to(self.device)
                         naction = nbatch['actions'].to(self.device)
                         B = nagent_pos.shape[0]
 
@@ -135,8 +135,6 @@ class ModelTrainer:
         ema_nets = self.ema.averaged_model
     
     def save_model(self, step=None):
-
-        # Dummy
         save_dict = {'model_weights': self.model.state_dict()}
         
         # add train params to save_dict
@@ -152,25 +150,24 @@ class ModelTrainer:
         Evaluates a given model on a given dataset
         Saves the model if the test loss is the best so far
         """
-        ## Dummy
-        raise NotImplementedError
         # Evaluate the model by computing the MSE on test data
         total_loss = 0
-        num_eval_batches = int(len(observations)/self.train_params["batch_size"])
-        for eval_step in range(num_eval_batches):
-            # Sample the next batch of data
-            eval_idxs = np.arange(eval_step*self.train_params["batch_size"], (eval_step+1)*self.train_params["batch_size"])
-            if 'seq_len' in self.train_params:
-                # get stacked samples
-                obs_batch, acs_batch, prev_obs_batch = get_stacked_samples(observations, actions, terminals, 
-                                                        self.train_params["seq_len"], self.train_params["batch_size"], start_idxs=eval_idxs)
-            else:
-                obs_batch = observations[eval_idxs]
-                acs_batch = actions[eval_idxs]
-                prev_obs_batch = previous_observations[eval_idxs]
-            
-            loss = self.model.eval_model(obs_batch, acs_batch, prev_obs_batch, self.train_params["loss"])
-            total_loss += loss*self.train_params["batch_size"]
+        # iterate over all the test data
+        with tqdm(self.eval_dataloader, desc='Batch', leave=False) as tepoch:
+            for nbatch in tepoch:
+                # data normalized in dataset
+                # device transfer
+                nbatch = {k: v.float() for k, v in nbatch.items()}
+                if(self.is_state_based):
+                    nimage = None
+                else:
+                    nimage = nbatch['image'][:,:self.train_params['obs_horizon']].to(self.device)
+                    
+                nagent_pos = nbatch['nagent_pos'][:,:self.train_params['obs_horizon']].to(self.device)
+                naction = nbatch['actions'].to(self.device)
+                B = nagent_pos.shape[0]
+
+                loss = self.model.eval_model(nimage, nagent_pos, naction)
+                total_loss += loss*B
         
-        test_loss = total_loss/len(observations)
-        return test_loss
+        return total_loss/len(self.eval_dataloader.dataset)

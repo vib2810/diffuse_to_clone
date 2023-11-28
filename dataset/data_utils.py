@@ -21,6 +21,7 @@ from collections import OrderedDict
 def create_sample_indices(
         episode_ends:np.ndarray, sequence_length:int,
         pad_before: int=0, pad_after: int=0):
+    # TODO ag6 put some comments to explain this
     indices = list()
     for i in range(len(episode_ends)):
         start_idx = 0
@@ -181,14 +182,14 @@ def initialize_data():
         
     data = OrderedDict()
     data['images'] = []
-    data['states'] = []
+    data['nagent_pos'] = []
     data['actions'] = []
     data['tool_poses'] = []
     data['episode_ends'] = []
 
     return data
 
-def print_data_dict(train_data: OrderedDict):
+def print_data_dict_shapes(train_data: OrderedDict):
 
 
     # print separator
