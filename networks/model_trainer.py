@@ -21,7 +21,7 @@ class ModelTrainer:
         # Initialize the writer
         curr_time= time.strftime("%d-%m-%Y_%H-%M-%S")
         self.experiment_name_timed = train_params["experiment_name"] + "_" + curr_time
-        logdir = '/home/ros_ws/bags/train_logs/'+ self.experiment_name_timed
+        logdir = '/home/ros_ws/logs/train_logs/'+ self.experiment_name_timed
         if not(os.path.exists(logdir)):
             os.makedirs(logdir)
         print("Logging to: ", logdir)
@@ -139,9 +139,9 @@ class ModelTrainer:
         save_dict.update(self.train_params)
 
         # Save the model (mean net and logstd [nn.Parameter] in on dict)
-        if not os.path.exists('/home/ros_ws/bags/models'):
-            os.makedirs('/home/ros_ws/bags/models')
-        torch.save(save_dict, '/home/ros_ws/bags/models/' + self.experiment_name_timed + '.pt')
+        if not os.path.exists('/home/ros_ws/logs/models'):
+            os.makedirs('/home/ros_ws/logs/models')
+        torch.save(save_dict, '/home/ros_ws/logs/models/' + self.experiment_name_timed + '.pt')
 
     def evaluate_model(self, observations, actions, previous_observations, terminals):
         """

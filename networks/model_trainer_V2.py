@@ -27,7 +27,7 @@ class ModelTrainer:
         # Initialize the writer
         curr_time= time.strftime("%d-%m-%Y_%H-%M-%S")
         self.experiment_name_timed = train_params["experiment_name"] + "_" + curr_time
-        logdir = '/home/ros_ws/bags/train_logs/'+ self.experiment_name_timed
+        logdir = '/home/ros_ws/logs/train_logs/'+ self.experiment_name_timed
         if not(os.path.exists(logdir)):
             os.makedirs(logdir)
         print("Logging to: ", logdir)
@@ -37,6 +37,13 @@ class ModelTrainer:
         ### Load dataset for training
         dataset = DiffusionDataset(
             dataset_path=data_params['dataset_path'],
+            pred_horizon=data_params['pred_horizon'],
+            obs_horizon=data_params['obs_horizon'],
+            action_horizon=data_params['action_horizon'],
+        )
+        
+        eval_dataset = DiffusionDataset(
+            dataset_path=data_params['eval_dataset_path'],
             pred_horizon=data_params['pred_horizon'],
             obs_horizon=data_params['obs_horizon'],
             action_horizon=data_params['action_horizon'],
@@ -51,6 +58,17 @@ class ModelTrainer:
             batch_size=train_params['batch_size'],
             num_workers=train_params['num_workers'],
             shuffle=True,
+            # accelerate cpu-gpu transfer
+            pin_memory=True,
+            # don't kill worker process afte each epoch
+            persistent_workers=True
+        )
+        
+        self.eval_dataloader = torch.utils.data.DataLoader(
+            eval_dataset,
+            batch_size=train_params['eval_batch_size'],
+            num_workers=train_params['num_workers'],
+            shuffle=False,
             # accelerate cpu-gpu transfer
             pin_memory=True,
             # don't kill worker process afte each epoch
@@ -119,18 +137,15 @@ class ModelTrainer:
     def save_model(self, step=None):
 
         # Dummy
-        raise NotImplementedError
         save_dict = {'model_weights': self.model.state_dict()}
-        if step is not None:
-            save_dict['step'] = step
         
         # add train params to save_dict
         save_dict.update(self.train_params)
 
         # Save the model (mean net and logstd [nn.Parameter] in on dict)
-        if not os.path.exists('/home/ros_ws/bags/models'):
-            os.makedirs('/home/ros_ws/bags/models')
-        torch.save(save_dict, '/home/ros_ws/bags/models/' + self.experiment_name_timed + '.pt')
+        if not os.path.exists('/home/ros_ws/logs/models'):
+            os.makedirs('/home/ros_ws/logs/models')
+        torch.save(save_dict, '/home/ros_ws/logs/models/' + self.experiment_name_timed + '.pt')
 
     def evaluate_model(self, observations, actions, previous_observations, terminals):
         """

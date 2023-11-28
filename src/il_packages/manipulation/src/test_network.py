@@ -48,7 +48,7 @@ class ModelTester:
             traj_num,
         ):
         # Initialize the model
-        train_params = torch.load("/home/ros_ws/bags/models/" + model_name + ".pt", map_location=torch.device('cpu'))
+        train_params = torch.load("/home/ros_ws/logs/models/" + model_name + ".pt", map_location=torch.device('cpu'))
         if str(train_params["model_class"]).find("BCTrainer") != -1:
             print("Loading BC Model")
             self.model = BCTrainer(
@@ -76,7 +76,7 @@ class ModelTester:
                 print(key, ":", self.train_params[key])
 
         # load point and joint ranges from yaml file
-        trajectory_path = '/home/ros_ws/bags/recorded_trajectories/trajectory_' + str(traj_num) + '.yaml'
+        trajectory_path = '/home/ros_ws/logs/recorded_trajectories/trajectory_' + str(traj_num) + '.yaml'
         print("Loading limits from: ", trajectory_path)
         with open(trajectory_path, 'r') as f:
             self.limits = yaml.load(f, Loader=yaml.FullLoader)
@@ -88,7 +88,7 @@ class ModelTester:
         self.model.eval()
 
         # Make folder for saving trajectories
-        self.trajectory_folder = '/home/ros_ws/bags/test_trajectories/'
+        self.trajectory_folder = '/home/ros_ws/logs/test_trajectories/'
         if not(os.path.exists(self.trajectory_folder)):
             os.makedirs(self.trajectory_folder)
         self.pickle_file_name = f'{traj_num}__{model_name}.pkl'
@@ -283,11 +283,11 @@ class ModelTester:
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: please provide model_name as node argument")
-        print("Example: rosrun manipulation test_network.py bags/models/bc_model_3_03-10-2023_05-56-06.pt")
+        print("Example: rosrun manipulation test_network.py logs/models/bc_model_3_03-10-2023_05-56-06.pt")
         sys.exit()
 
     rospy.init_node('record_trajectories')
-    # sys.argv[1] will be of format bags/models/bc_model_3_03-10-2023_05-56-06.pt
+    # sys.argv[1] will be of format logs/models/bc_model_3_03-10-2023_05-56-06.pt
     traj_num = sys.argv[1].split("_")[2].split(".")[0]
     model_name = sys.argv[1].split("/")[2].split(".")[0]
 

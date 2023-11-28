@@ -371,7 +371,7 @@ class MoveitPlanner():
         """
         pick_pose = expt_data_dict["pick_pose"]
         place_pose = expt_data_dict["place_pose"]
-        expt_folder = '/home/ros_ws/bags/recorded_trajectories/'+ expt_data_dict["experiment_name"]
+        expt_folder = '/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"]
         if not os.path.exists(expt_folder):
             os.makedirs(expt_folder)
 
@@ -478,7 +478,7 @@ class MoveitPlanner():
             print("Saving Trajectory: ", traj_num)
                 
             # Save data
-            with open('/home/ros_ws/bags/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/'+ expt_data_dict["experiment_name"] + '_' + str(traj_num) + '.pkl', 'wb') as f:
+            with open('/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/'+ expt_data_dict["experiment_name"] + '_' + str(traj_num) + '.pkl', 'wb') as f:
                 pickle.dump(data, f)
 
 

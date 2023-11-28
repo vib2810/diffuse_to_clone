@@ -10,7 +10,7 @@ docker run --privileged --rm -it \
     -v "$(pwd)/src/il_packages:/home/ros_ws/src/il_packages" \
     -v "$(pwd)/networks:/home/ros_ws/networks" \
     -v "$(pwd)/guide_mode.py:/home/ros_ws/guide_mode.py" \
-    -v "$(pwd)/bags:/home/ros_ws/bags" \
+    -v "$(pwd)/logs:/home/ros_ws/logs" \
     -v "$(pwd)/dataset:/home/ros_ws/dataset" \
     -v "/etc/timezone:/etc/timezone:ro" \
     -v "/etc/localtime:/etc/localtime:ro" \

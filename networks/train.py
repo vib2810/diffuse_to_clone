@@ -22,7 +22,8 @@ if __name__ == "__main__":
     seed_everything(0)
 
     data_params = {
-        "dataset_path": '/home/ros_ws/dataset/data/toy_expt_first_try',
+        "dataset_path": '/home/ros_ws/dataset/data/toy_expt_first_try/train',
+        'eval_dataset_path': '/home/ros_ws/dataset/data/toy_expt_first_try/eval',
         "is_state_based": True,
         "pred_horizon": 16,
         "obs_horizon": 2,
@@ -32,6 +33,7 @@ if __name__ == "__main__":
     # Make the train params
     train_params = {
         "batch_size": 64,
+        "eval_batch_size": 64,
         "num_workers": 4,
         "num_epochs": 100,
         "num_steps": 500000,
