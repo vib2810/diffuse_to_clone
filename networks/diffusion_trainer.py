@@ -111,9 +111,7 @@ class DiffusionTrainer(nn.Module):
         # accelerates training and improves stability
         # holds a copy of the model weights
         # Comment (Abhinav): EMA Model in diffusers has been updated. CHeck this file for reference.
-        # https://github.com/huggingface/diffusers/blob/main/src/diffusers/training_utils.py
-
-
+        # https://github.com/huggingface/diffusers/blob/main/src/diffusers/training_utils.py    
         self.ema = EMAModel(
             self.nets,
             power=0.75)

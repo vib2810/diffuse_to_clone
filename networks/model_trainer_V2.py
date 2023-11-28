@@ -63,6 +63,7 @@ class ModelTrainer:
             # don't kill worker process afte each epoch
             persistent_workers=True
         )
+        dataset.print_size("train")
         
         self.eval_dataloader = torch.utils.data.DataLoader(
             eval_dataset,
@@ -73,7 +74,8 @@ class ModelTrainer:
             pin_memory=True,
             # don't kill worker process afte each epoch
             persistent_workers=True
-        )
+        )  
+        eval_dataset.print_size("eval")
 
         # Add info to train_params
         self.train_params["obs_dim"] = dataset.obs_dim
@@ -99,41 +101,45 @@ class ModelTrainer:
         self.best_eval_loss_noisy = 1e10
 
     def train_model(self, test_eval_split_ratio=0.1):
+        global_step = 0
+        for epoch_idx in range(self.train_params["num_epochs"]):
+            epoch_loss = list()
+            print("-----Epoch {}-----".format(epoch_idx))
+            # batch loop
+            for nbatch in self.dataloader:
+                # data normalized in dataset
+                # device transfer
 
-        with tqdm(range(self.train_params["num_epochs"]), desc='Epoch') as tglobal:
-            # epoch loop
-            for epoch_idx in tglobal:
-                epoch_loss = list()
-                # batch loop
-                with tqdm(self.dataloader, desc='Batch', leave=False) as tepoch:
-                    for nbatch in tepoch:
-                        # data normalized in dataset
-                        # device transfer
+                # convert ti float 32
+                nbatch = {k: v.float() for k, v in nbatch.items()}                      
+                if(self.is_state_based):
+                    nimage = None
+                else:
+                    nimage = nbatch['image'][:,:self.train_params['obs_horizon']].to(self.device)
+            
+                nagent_pos = nbatch['nagent_pos'][:,:self.train_params['obs_horizon']].to(self.device)
+                naction = nbatch['actions'].to(self.device)
+                B = nagent_pos.shape[0]
 
-                        # convert ti float 32
-                        nbatch = {k: v.float() for k, v in nbatch.items()}
-                      
-                        if(self.is_state_based):
-                            nimage = None
-                        else:
-                            nimage = nbatch['image'][:,:self.train_params['obs_horizon']].to(self.device)
-                  
-                        nagent_pos = nbatch['nagent_pos'][:,:self.train_params['obs_horizon']].to(self.device)
-                        naction = nbatch['actions'].to(self.device)
-                        B = nagent_pos.shape[0]
+                loss = self.model.train_model_step(nimage, nagent_pos, naction)
 
-                        loss = self.model.train_model_step(nimage, nagent_pos, naction)
-
-                        # logging
-                        loss_cpu = loss
-                        epoch_loss.append(loss_cpu)
-                        tepoch.set_postfix(loss=loss_cpu)
-                tglobal.set_postfix(loss=np.mean(epoch_loss))
-
-        # Weights of the EMA model
-        # is used for inference
-        ema_nets = self.ema.averaged_model
-    
+                # logging
+                loss_cpu = loss
+                epoch_loss.append(loss_cpu)
+                
+                # log to tensorboard
+                self.writer.add_scalar('Loss/train', loss_cpu, global_step)
+                global_step += 1
+                
+            print("Epoch: {}, Step: {}, Loss: {}".format(epoch_idx, global_step, loss_cpu))
+            
+            # evaluate model on test data
+            self.model.run_after_epoch()
+            eval_loss = self.evaluate_model(nimage, nagent_pos, naction)
+            self.writer.add_scalar('Loss/eval', eval_loss, global_step)
+        # save model
+        self.save_model()
+                
     def save_model(self, step=None):
         save_dict = {'model_weights': self.model.state_dict()}
         
@@ -145,7 +151,7 @@ class ModelTrainer:
             os.makedirs('/home/ros_ws/logs/models')
         torch.save(save_dict, '/home/ros_ws/logs/models/' + self.experiment_name_timed + '.pt')
 
-    def evaluate_model(self, observations, actions, previous_observations, terminals):
+    def evaluate_model(self, nimage, nagent_pos, naction):
         """
         Evaluates a given model on a given dataset
         Saves the model if the test loss is the best so far
@@ -153,21 +159,20 @@ class ModelTrainer:
         # Evaluate the model by computing the MSE on test data
         total_loss = 0
         # iterate over all the test data
-        with tqdm(self.eval_dataloader, desc='Batch', leave=False) as tepoch:
-            for nbatch in tepoch:
-                # data normalized in dataset
-                # device transfer
-                nbatch = {k: v.float() for k, v in nbatch.items()}
-                if(self.is_state_based):
-                    nimage = None
-                else:
-                    nimage = nbatch['image'][:,:self.train_params['obs_horizon']].to(self.device)
-                    
-                nagent_pos = nbatch['nagent_pos'][:,:self.train_params['obs_horizon']].to(self.device)
-                naction = nbatch['actions'].to(self.device)
-                B = nagent_pos.shape[0]
+        for nbatch in self.eval_dataloader:
+            # data normalized in dataset
+            # device transfer
+            nbatch = {k: v.float() for k, v in nbatch.items()}
+            if(self.is_state_based):
+                nimage = None
+            else:
+                nimage = nbatch['image'][:,:self.train_params['obs_horizon']].to(self.device)
+                
+            nagent_pos = nbatch['nagent_pos'][:,:self.train_params['obs_horizon']].to(self.device)
+            naction = nbatch['actions'].to(self.device)
+            B = nagent_pos.shape[0]
 
-                loss = self.model.eval_model(nimage, nagent_pos, naction)
-                total_loss += loss*B
+            loss = self.model.eval_model(nimage, nagent_pos, naction)
+            total_loss += loss*B
         
         return total_loss/len(self.eval_dataloader.dataset)

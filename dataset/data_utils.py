@@ -72,12 +72,10 @@ def sample_sequence(train_data, sequence_length,
 # normalize data
 def get_data_stats(data):
     data = data.reshape(-1,data.shape[-1])
-    print("Data shape: ", data.shape)
     stats = {
         'min': np.min(data, axis=0),
         'max': np.max(data, axis=0)
     }
-    print("Stats: ", stats)
     return stats
 
 def normalize_data(data, stats):
@@ -184,17 +182,18 @@ def initialize_data():
     data['images'] = []
     data['nagent_pos'] = []
     data['actions'] = []
-    data['tool_poses'] = []
+    # data['tool_poses'] = []
     data['episode_ends'] = []
 
     return data
 
 def print_data_dict_shapes(train_data: OrderedDict):
-
-
     # print separator
     print("--------------------------------------------------")
     print("Train_data dict:")
     for key, data in train_data.items():
-        print(key, data.shape)
+        if isinstance(data, list):
+            print(key, len(data))
+        if isinstance(data, np.ndarray):
+            print(key, data.shape)
     print("--------------------------------------------------")

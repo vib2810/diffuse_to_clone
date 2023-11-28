@@ -25,9 +25,9 @@ if __name__ == "__main__":
         "dataset_path": '/home/ros_ws/dataset/data/toy_expt_first_try/train',
         'eval_dataset_path': '/home/ros_ws/dataset/data/toy_expt_first_try/eval',
         "is_state_based": True,
-        "pred_horizon": 16,
+        "pred_horizon": 16,  # must be a multiple of 2
         "obs_horizon": 2,
-        "action_horizon": 8,
+        "action_horizon": 8, # MPC number of actions to take
     }
 
     # Make the train params
@@ -36,8 +36,7 @@ if __name__ == "__main__":
         "eval_batch_size": 64,
         "num_workers": 4,
         "num_epochs": 100,
-        "num_steps": 500000,
-        "learning_rate": 1e-5,
+        "learning_rate": 1e-4,
         "loss": nn.functional.mse_loss,
         'use_stats': False,
         'model_class': DiffusionTrainer,
@@ -50,8 +49,7 @@ if __name__ == "__main__":
                                     '_lr_' + str(train_params['learning_rate']) + \
                                     '_bs_' + str(train_params['batch_size']) + \
                                     '_epochs_' + str(train_params['num_epochs']) + \
-                                    '_steps_' + str(train_params['num_steps']) + \
-                                    str(train_params['loss'].__class__.__name__)
+                                    '_loss_' + train_params['loss'].__name__
 
     model_trainer = ModelTrainer(train_params, data_params)
     model_trainer.train_model()

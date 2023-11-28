@@ -51,12 +51,12 @@ class DiffusionDataset(torch.utils.data.Dataset):
             # image_data = parse_images(dataset_root['images'])   
             state_data = parse_states(dataset_root['observations'])
             actions_data = parse_actions(dataset_root['actions'])
-            tool_poses_data = parse_poses(dataset_root['tool_poses'], mode='xyz_quat')
+            # tool_poses_data = parse_poses(dataset_root['tool_poses'], mode='xyz_quat')
             self.is_img_available = 'images' in dataset_root.keys()
             if self.is_img_available:
                 image_data = parse_images(dataset_root['images'])
             else:
-                image_data = np.zeros((len(state_data), 3, 96, 96)) # dummy data
+                image_data = None
 
             episode_length = len(state_data)
             episode_ends.append(episode_length-1) # index at which ends
@@ -64,17 +64,16 @@ class DiffusionDataset(torch.utils.data.Dataset):
             # Store in global dictionary for all data
             train_data['nagent_pos'].extend(state_data)
             train_data['actions'].extend(actions_data)
-            train_data['images'].extend(image_data)
+            if image_data is not None:
+                train_data['images'].extend(image_data)
 
         # print train_data dict stats
         train_data['nagent_pos'] = np.array(train_data['nagent_pos'])
         train_data['actions'] = np.array(train_data['actions'])
-        train_data['images'] = np.array(train_data['images'])
         train_data['episode_ends'] = np.array(episode_ends)
+        if self.is_img_available:
+            train_data['images'] = np.array(train_data['images'])
 
-        ### Store some stats about training data
-        print_data_dict_shapes(train_data)
-        
         self.state_dim = train_data['nagent_pos'].shape[1]
         self.action_dim = train_data['actions'].shape[1]
 
@@ -106,13 +105,10 @@ class DiffusionDataset(torch.utils.data.Dataset):
             pad_before=obs_horizon-1,
             pad_after=action_horizon-1)
         
-        print("Indices shape: ", indices.shape)
-
         # # compute statistics and normalized data to [-1,1]
         stats = dict()
         normalized_train_data = dict()
         for key, data in train_data.items():
-            print("Key: ", key)
             if key not in ['images','episode_ends']: # save time since we don't have images rn. TODO: ag6: Fix this later
                 stats[key] = get_data_stats(data)
                 normalized_train_data[key] = normalize_data(data, stats[key])
@@ -127,15 +123,14 @@ class DiffusionDataset(torch.utils.data.Dataset):
         self.action_horizon = action_horizon
         self.obs_horizon = obs_horizon
 
-
-        print('*****************************************************************************')
-        print(' **********************Data Loaded Successfully!!!*******************************')
-        print('*****************************************************************************')
-
-
     def __len__(self):
         return len(self.indices)
 
+    def print_size(self, string):
+        print("Dataset {}".format(string))
+        ### Store some stats about training data
+        print_data_dict_shapes(self.normalized_train_data)
+        
     def __getitem__(self, idx):
         # get the start/end indices for this datapoint
         buffer_start_idx, buffer_end_idx, \

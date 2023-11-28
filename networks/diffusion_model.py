@@ -39,6 +39,7 @@ class DiffusionTrainer(nn.Module):
         self.action_dim = train_params["ac_dim"]
         self.obs_dim = train_params["obs_dim"]
         self.obs_horizon = train_params["obs_horizon"]
+        self.pred_horizon = train_params["pred_horizon"]
         self.device = train_params["device"]
         self.num_diffusion_iters = train_params["num_diffusion_iters"]
         self.num_ddim_iters = train_params["num_ddim_iters"]
@@ -65,9 +66,16 @@ class DiffusionTrainer(nn.Module):
                 'vision_encoder': self.vision_encoder,
                 'noise_pred_net': self.noise_pred_net
             })
+            self.inference_nets = nn.ModuleDict({
+                'vision_encoder': self.vision_encoder,
+                'noise_pred_net': self.noise_pred_net
+            })
         
         else:
             self.nets = nn.ModuleDict({
+                'noise_pred_net': self.noise_pred_net
+            })
+            self.inference_nets = nn.ModuleDict({
                 'noise_pred_net': self.noise_pred_net
             })
 
@@ -90,7 +98,13 @@ class DiffusionTrainer(nn.Module):
             prediction_type='epsilon'
         )
         
+        # put network on device
         _ = self.nets.to(self.device)
+        
+        # convert stats to tensors and put on device
+        for key in self.stats.keys():
+            for subkey in self.stats[key].keys():
+                self.stats[key][subkey] = torch.tensor(self.stats[key][subkey].astype(np.float32)).to(self.device)
 
         # Exponential Moving Average
         # accelerates training and improves stability
@@ -99,7 +113,7 @@ class DiffusionTrainer(nn.Module):
         # https://github.com/huggingface/diffusers/blob/main/src/diffusers/training_utils.py
 
         self.ema = EMAModel(
-            self.nets,
+            parameters=self.nets.parameters(),
             power=0.75)
         
         # loss fn
@@ -121,9 +135,10 @@ class DiffusionTrainer(nn.Module):
         )
 
     def eval(self):
-        self.nets.eval()
+        # self.nets.eval()
+        self.inference_nets.eval()
 
-    def get_action_eval(self, nimage: torch.Tensor, states: torch.Tensor):
+    def get_action_eval(self, nimage: torch.Tensor, nagent_pos: torch.Tensor):
         """
         Forward pass of the network
         """
@@ -132,32 +147,32 @@ class DiffusionTrainer(nn.Module):
         ##### There's no self.stats['observations'] in our code
         ##### Batches are already normalized in our case so no use of normalization here
         # TODO: vib2810- Verify this!!
-        if self.stats:
-            obs = normalize_data(obs, self.stats['nagent_pos'])
+        if not self.is_state_based:
+            nimage = normalize_data(nimage, self.stats['nimage'])
+            
+        # print devices of nagent_pos and self.stats['nagent_pos']
+        nagent_pos = normalize_data(nagent_pos, self.stats['nagent_pos'])
 
         with torch.no_grad():
             if(not self.is_state_based):
                 # encoder vision features
-                image_features = self.nets['vision_encoder'](
+                image_features = self.inference_nets['vision_encoder'](
                     nimage.flatten(end_dim=1))
                 image_features = image_features.reshape(
                     *nimage.shape[:2],-1)
                 # (B,obs_horizon,D)
 
                 # concatenate vision feature and low-dim obs
-                obs_features = torch.cat([image_features, states], dim=-1)
+                obs_features = torch.cat([image_features, nagent_pos], dim=-1)
                 obs_cond = obs_features.flatten(start_dim=1)
                 # (B, obs_horizon * obs_dim)
 
             else:
-                obs_features = torch.cat([states], dim=-1)
+                obs_features = torch.cat([nagent_pos], dim=-1)
                 obs_cond = obs_features.flatten(start_dim=1)
                 # (B, obs_horizon * obs_dim)        
                 
-            B = states.shape[0]
-            
-            sample = self.inference_model(obs) # dummy
-            
+            B = nagent_pos.shape[0]   
             # initialize action from Guassian noise
             noisy_action = torch.randn(
                 (B, self.pred_horizon, self.action_dim), device=self.device)
@@ -168,7 +183,7 @@ class DiffusionTrainer(nn.Module):
 
             for k in self.ddim_sampler.timesteps:
                 # predict noise
-                noise_pred = self.ema_nets['noise_pred_net'](
+                noise_pred = self.inference_nets['noise_pred_net'](
                     sample=naction,
                     timestep=k,
                     global_cond=obs_cond
@@ -177,21 +192,16 @@ class DiffusionTrainer(nn.Module):
                 # inverse diffusion step (remove noise)
                 naction = self.ddim_sampler.step(
                     model_output=noise_pred,
-                    timestep=loss_fn
-loss_fnk,
+                    timestep=k,
                     sample=naction
                 ).prev_sample
-
         # unnormalize action
-        naction = naction.detach().to('cpu').numpy()
+        naction = naction.detach()
         # (B, pred_horizon, action_dim)
-        naction = naction[0]
         action_pred = unnormalize_data(naction, stats=self.stats['actions'])
-        
-        return action_pred
+        return action_pred # shape (B, pred_horizon, action_dim)
         
     def train_model_step(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naction: torch.Tensor):
-
         if(not self.is_state_based):
             # encoder vision features
             image_features = self.nets['vision_encoder'](
@@ -242,9 +252,13 @@ loss_fnk,
         self.lr_scheduler.step()
 
         # update Exponential Moving Average of the model weights
-        self.ema.step(self.nets)
+        # PASS all model parameters
+        self.ema.step(self.nets.parameters())
 
         return loss.item()
+    
+    def run_after_epoch(self):
+        self.ema.copy_to(self.inference_nets.parameters())
     
     def eval_model(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naction: torch.Tensor):
         model_actions = self.get_action_eval(nimage, nagent_pos)
