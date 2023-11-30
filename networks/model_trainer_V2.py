@@ -123,19 +123,19 @@ class ModelTrainer:
 
                 loss = self.model.train_model_step(nimage, nagent_pos, naction)
 
-                # logging
+                # Logging
                 loss_cpu = loss
                 epoch_loss.append(loss_cpu)
                 
-                # log to tensorboard
+                # Log to tensorboard
                 self.writer.add_scalar('Loss/train', loss_cpu, global_step)
                 global_step += 1
                 
             print("Epoch: {}, Step: {}, Loss: {}".format(epoch_idx, global_step, loss_cpu))
             
-            # evaluate model on test data
+            # Evaluate model on test data
             self.model.run_after_epoch()
-            eval_loss = self.evaluate_model(nimage, nagent_pos, naction)
+            eval_loss = self.evaluate_model()
             self.writer.add_scalar('Loss/eval', eval_loss, global_step)
         # save model
         self.save_model()
@@ -151,7 +151,7 @@ class ModelTrainer:
             os.makedirs('/home/ros_ws/logs/models')
         torch.save(save_dict, '/home/ros_ws/logs/models/' + self.experiment_name_timed + '.pt')
 
-    def evaluate_model(self, nimage, nagent_pos, naction):
+    def evaluate_model(self,):
         """
         Evaluates a given model on a given dataset
         Saves the model if the test loss is the best so far

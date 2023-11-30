@@ -43,9 +43,8 @@ class DiffusionDataset(torch.utils.data.Dataset):
         files = [os.path.join(dataset_path, f) for f in os.listdir(dataset_path) if f.endswith('.pkl')]
         train_data = initialize_data()
         self.is_img_available = not is_state_based
-
         episode_ends = []
-        for file in files:
+        for idx,file in enumerate(files):
             dataset_root = pickle.load(open(file, 'rb'))
             ### Image data not present
             # image_data = parse_images(dataset_root['images'])   
@@ -59,7 +58,11 @@ class DiffusionDataset(torch.utils.data.Dataset):
                 image_data = None
 
             episode_length = len(state_data)
-            episode_ends.append(episode_length-1) # index at which ends
+
+            if(idx>0):
+                episode_ends.append(episode_ends[idx-1] + episode_length-1) # index at which ends
+            else:
+                episode_ends.append(episode_length-1)
             
             # Store in global dictionary for all data
             train_data['nagent_pos'].extend(state_data)
@@ -154,6 +157,7 @@ class DiffusionDataset(torch.utils.data.Dataset):
 
         nsample['nagent_pos'] = nsample['nagent_pos'][:self.obs_horizon,:]
         nsample['nagent_pos'] = nsample['nagent_pos'].astype(np.float64)
+
 
         ### print dtype of all keys
         # for key, data in nsample.items():
