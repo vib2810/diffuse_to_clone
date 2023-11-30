@@ -11,8 +11,8 @@ import numpy as np
 import sys
 import os
 import time
-from diffusion_trainer import DiffusionTrainer
-from model_trainer_V2 import ModelTrainer   
+from diffusion_model import DiffusionTrainer
+from model_trainer import ModelTrainer   
 import sys
 sys.path.append("/home/ros_ws/")
 from model_utils import seed_everything
