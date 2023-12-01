@@ -21,9 +21,16 @@ RUN apt install ros-noetic-realsense2-camera -y
 RUN apt update && pip install open3d
 RUN apt install ros-noetic-aruco-ros -y
 RUN apt-get update && apt-get install -y python3-pip libopenblas-dev libopenmpi-dev
-RUN pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+# RUN pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 RUN pip3 install ultralytics==8.0.28
 RUN apt install ros-noetic-audio-common -y
+# Install joy
+RUN sudo apt-get install ros-noetic-joy -y
+
+# Install diffusion dependencies
+RUN pip3 install torch==1.13.1 torchvision==0.14.1 diffusers==0.18.2 \
+        scikit-image==0.19.3 scikit-video==1.1.11 zarr==2.12.0 numcodecs==0.10.2 \
+        pygame==2.1.2 pymunk==6.2.1 gym==0.26.2 shapely==1.8.4
 
 # mount src folder from desktop to /home/ros_ws/src
 COPY src/il_packages /home/ros_ws/src/il_packages
@@ -33,7 +40,6 @@ RUN cd /home/ros_ws/src/git_packages && git clone --recursive https://github.com
         && git clone https://github.com/ros-planning/panda_moveit_config.git -b noetic-devel \
         && git clone https://github.com/IFL-CAMP/easy_handeye
 
-
 #rosdep install on src folder
 RUN /bin/bash -c "source /opt/ros/noetic/setup.bash; cd /home/ros_ws; rosdep install --from-paths src --ignore-src -r -y"
 
@@ -42,8 +48,6 @@ RUN /bin/bash -c "source /opt/ros/noetic/setup.bash; cd /home/ros_ws; catkin_mak
 
 RUN echo "source /home/ros_ws/devel/setup.bash" >> ~/.bashrc
 
-# Install joy
-RUN sudo apt-get install ros-noetic-joy -y
 
 # set workdir as home/ros_ws
 WORKDIR /home/ros_ws
