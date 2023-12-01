@@ -8,163 +8,175 @@ import numpy as np
 import torch
 import sys
 sys.path.append("/home/ros_ws/")
-from networks.bc_model import BCTrainer
-from networks.lstm_model import LSTMTrainer
-from networks.residuil_model import ResiduILTrainer
-from networks.model_utils import read_pkl_trajectory_data, get_data_stats, normalize_data, get_stacked_samples
+from tqdm.auto import tqdm
+import torch
+import torch.nn as nn
+from dataset.dataset import DiffusionDataset
+from diffusion_model import DiffusionTrainer
+from lstm_trainer import LSTMTrainer
 
 class ModelTrainer:
-    def __init__(self, train_params, eval_every=100):
+    def __init__(self, train_params, data_params, eval_every=100):
         self.eval_every = eval_every
         self.train_params = train_params
-       
+        self.data_params = data_params
+        self.is_state_based = data_params["is_state_based"]
+        self.device = torch.device(train_params["device"]) if torch.cuda.is_available() else torch.device("cpu")
+
         # Initialize the writer
         curr_time= time.strftime("%d-%m-%Y_%H-%M-%S")
         self.experiment_name_timed = train_params["experiment_name"] + "_" + curr_time
-        logdir = '/home/ros_ws/bags/train_logs/'+ self.experiment_name_timed
+        logdir = '/home/ros_ws/logs/train_logs/'+ self.experiment_name_timed
         if not(os.path.exists(logdir)):
             os.makedirs(logdir)
         print("Logging to: ", logdir)
 
         self.writer = SummaryWriter(logdir)
 
-        # Load the data [Train and Noisy Eval]
-        pkl_traj_data = read_pkl_trajectory_data(train_params["trajectory_num"], eval_split=0.1)
-        self.observations = pkl_traj_data["observations"]
-        self.actions = pkl_traj_data["actions"]
-        self.prev_observations = pkl_traj_data["previous_observations"]
-        self.terminals = pkl_traj_data["terminals"]
-        self.noisy_eval_obs = pkl_traj_data["eval_observations"]
-        self.noisy_eval_acts = pkl_traj_data["eval_actions"]
-        self.noisy_eval_prev_obs = pkl_traj_data["eval_previous_observations"]
-        self.noisy_eval_terminals = pkl_traj_data["eval_terminals"]
+        ### Load dataset for training
+        dataset = DiffusionDataset(
+            dataset_path=data_params['dataset_path'],
+            pred_horizon=data_params['pred_horizon'],
+            obs_horizon=data_params['obs_horizon'],
+            action_horizon=data_params['action_horizon'],
+        )
+        
+        eval_dataset = DiffusionDataset(
+            dataset_path=data_params['eval_dataset_path'],
+            pred_horizon=data_params['pred_horizon'],
+            obs_horizon=data_params['obs_horizon'],
+            action_horizon=data_params['action_horizon'],
+        )
 
-        # Load clean data for metric logging
-        clean_obs, clean_act, clean_prev_obs, clean_terminals, _, _, _= read_pkl_trajectory_data("eval")
-        self.noiseless_obs = clean_obs
-        self.noiseless_acts = clean_act
-        self.noiseless_prev_obs = clean_prev_obs
-        self.noiseless_terminals = clean_terminals
+        ## Store stats
+        self.stats = dataset.stats
+
+        ### Create dataloader
+        self.dataloader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size=train_params['batch_size'],
+            num_workers=train_params['num_workers'],
+            shuffle=True,
+            # accelerate cpu-gpu transfer
+            pin_memory=True,
+            # don't kill worker process afte each epoch
+            persistent_workers=True
+        )
+        dataset.print_size("train")
+        
+        self.eval_dataloader = torch.utils.data.DataLoader(
+            eval_dataset,
+            batch_size=train_params['eval_batch_size'],
+            num_workers=train_params['num_workers'],
+            shuffle=False,
+            # accelerate cpu-gpu transfer
+            pin_memory=True,
+            # don't kill worker process afte each epoch
+            persistent_workers=True
+        )  
+        eval_dataset.print_size("eval")
 
         # Add info to train_params
-        self.train_params["ob_dim"] = pkl_traj_data["ob_dim"]
-        self.train_params["ac_dim"] = pkl_traj_data["ac_dim"]
-
-        if train_params['use_stats']:
-            stats = {}
-            stats["observations"] = get_data_stats(self.observations)
-            stats["actions"] = get_data_stats(self.actions)
-            train_params["stats"] = stats
-        else:
-            train_params["stats"] = None
+        self.train_params["obs_dim"] = dataset.obs_dim
+        self.train_params["ac_dim"] = dataset.action_dim
+        self.train_params["num_traj"] = len(self.dataloader)
+        self.train_params["obs_horizon"] = data_params["obs_horizon"]
+        self.train_params["pred_horizon"] = data_params["pred_horizon"]
+        self.train_params["action_horizon"] = data_params["action_horizon"]
+        self.train_params["stats"] = self.stats
+        self.train_params["is_state_based"] = self.is_state_based
 
         # Initialize model
-        if str(self.train_params["model_class"]).find("BCTrainer") != -1:
-            self.model = BCTrainer(
+        if str(self.train_params["model_class"]).find("DiffusionTrainer") != -1:
+            self.model = DiffusionTrainer(
                 train_params=train_params,
-                device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+                device = self.device if torch.cuda.is_available() else "cpu"
             )
         elif str(self.train_params["model_class"]).find("LSTMTrainer") != -1:
             self.model = LSTMTrainer(
                 train_params=train_params,
-                device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+                device = self.device if torch.cuda.is_available() else "cpu"
             )
-        elif str(self.train_params["model_class"]).find("ResiduILTrainer") != -1:
-            self.model = ResiduILTrainer(
-                train_params=train_params,
-                device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-            )
-        self.best_eval_loss_noisy = 1e10
-            
+        self.best_eval_loss = 1e10
+
     def train_model(self, test_eval_split_ratio=0.1):
-        """
-        Trains a given model on a given dataset
-        Assumes the update function of the model takes in a single batch of data and trains the model for 1 step
-        """
-        obs_train = self.observations; acs_train = self.actions
-        prev_obs_train = self.prev_observations; terminals_train = self.terminals
-        obs_test = self.noisy_eval_obs; acs_test = self.noisy_eval_acts
-        prev_obs_test = self.noisy_eval_prev_obs; terminals_test = self.noisy_eval_terminals
-      
-        # print size of train and test data
-        print("Train data size: ", len(obs_train))
-        print("Eval Noisy data size: ", len(obs_test))
-        print("Eval Noiseless data size: ", len(self.noiseless_obs))
+        global_step = 0
+        for epoch_idx in range(self.train_params["num_epochs"]):
+            epoch_loss = list()
+            print("-----Epoch {}-----".format(epoch_idx))
+            # batch loop
+            for nbatch in self.dataloader:  
+                # data normalized in dataset
+                # device transfer
 
-        self.model.put_network_on_device()
-
-        # Train the model   
-        for step in range(self.train_params["num_steps"]):
-            # Sample a batch of observations and actions
-            if 'seq_len' in self.train_params:
-                obs_batch, acs_batch, prev_obs_batch = get_stacked_samples(obs_train, acs_train, terminals_train, 
-                                                        self.train_params["seq_len"], self.train_params["batch_size"])
-            else:
-                # randomly permute batch size samples
-                indices = np.random.randint(0, len(obs_train), self.train_params["batch_size"])
-                obs_batch = obs_train[indices]
-                acs_batch = acs_train[indices]
-                prev_obs_batch = prev_obs_train[indices]
+                # convert ti float 32
+                nbatch = {k: v.float() for k, v in nbatch.items()}                      
+                if(self.is_state_based):
+                    nimage = None
+                else:
+                    nimage = nbatch['image'][:,:self.train_params['obs_horizon']].to(self.device)
             
-            # Train the model for 1 step
-            loss = self.model.train_model_step(obs_batch, acs_batch, prev_obs_batch, self.train_params["loss"])
+                nagent_pos = nbatch['nagent_pos'][:,:self.train_params['obs_horizon']].to(self.device)
+                naction = nbatch['actions'].to(self.device)
+                B = nagent_pos.shape[0]
 
-            # Log the loss
-            if type(loss) == dict:
-                for key in loss:
-                    self.writer.add_scalar(key, loss[key], step)
-            else:
-                self.writer.add_scalar("Loss", loss, step)
+                loss = self.model.train_model_step(nimage, nagent_pos, naction)
 
-            # Evaluate the model every eval_every steps
-            if step % self.train_params["eval_every"] == 0:
-                # Evaluate the model by computing the MSE on test data
-                eval_loss_noiseless = self.evaluate_model(self.noiseless_obs, self.noiseless_acts, self.noiseless_prev_obs, self.noiseless_terminals)
-                eval_loss_noisy = self.evaluate_model(obs_test, acs_test, prev_obs_test, terminals_test)
-                if eval_loss_noisy < self.best_eval_loss_noisy:
-                    self.best_eval_loss_noisy = eval_loss_noisy
-                    self.save_model(step)
-                print("Step: {}, Train Loss: {}, Eval Loss Noiseless: {}, Eval Loss Noisy: {}".format(step, loss, eval_loss_noiseless, eval_loss_noisy))
-                self.writer.add_scalar("Eval_Loss", eval_loss_noiseless, step)
-                self.writer.add_scalar("Eval_Loss_Noisy", eval_loss_noisy, step)
-        
-        self.writer.close()
-    
+                # logging
+                loss_cpu = loss
+                epoch_loss.append(loss_cpu)
+                
+                # log to tensorboard
+                self.writer.add_scalar('Loss/train', loss_cpu, global_step)
+                global_step += 1
+                
+                if(not global_step%50):
+                    print("Epoch: {}, Step: {}, Loss: {}".format(epoch_idx, global_step, loss_cpu))
+            
+            # evaluate model on test data
+            self.model.run_after_epoch()
+            eval_loss = self.evaluate_model(nimage, nagent_pos, naction)
+            self.writer.add_scalar('Loss/eval', eval_loss, global_step)
+            if eval_loss < self.best_eval_loss:
+                self.best_model_epoch = epoch_idx
+                self.best_eval_loss = eval_loss
+                self.save_model()
+                
     def save_model(self, step=None):
-        save_dict = {'model_weights': self.model.state_dict()}
-        if step is not None:
-            save_dict['step'] = step
+        save_dict = {}
+        save_dict["model_weights"] = self.model.state_dict()
+        save_dict["best_model_epoch"] = self.best_model_epoch
         
         # add train params to save_dict
         save_dict.update(self.train_params)
 
         # Save the model (mean net and logstd [nn.Parameter] in on dict)
-        if not os.path.exists('/home/ros_ws/bags/models'):
-            os.makedirs('/home/ros_ws/bags/models')
-        torch.save(save_dict, '/home/ros_ws/bags/models/' + self.experiment_name_timed + '.pt')
+        if not os.path.exists('/home/ros_ws/logs/models'):
+            os.makedirs('/home/ros_ws/logs/models')
+        torch.save(save_dict, '/home/ros_ws/logs/models/' + self.experiment_name_timed + '.pt')
 
-    def evaluate_model(self, observations, actions, previous_observations, terminals):
+    def evaluate_model(self, nimage, nagent_pos, naction):
         """
         Evaluates a given model on a given dataset
         Saves the model if the test loss is the best so far
         """
         # Evaluate the model by computing the MSE on test data
         total_loss = 0
-        num_eval_batches = int(len(observations)/self.train_params["batch_size"])
-        for eval_step in range(num_eval_batches):
-            # Sample the next batch of data
-            eval_idxs = np.arange(eval_step*self.train_params["batch_size"], (eval_step+1)*self.train_params["batch_size"])
-            if 'seq_len' in self.train_params:
-                # get stacked samples
-                obs_batch, acs_batch, prev_obs_batch = get_stacked_samples(observations, actions, terminals, 
-                                                        self.train_params["seq_len"], self.train_params["batch_size"], start_idxs=eval_idxs)
+        # iterate over all the test data
+        for nbatch in self.eval_dataloader:
+            # data normalized in dataset
+            # device transfer
+            nbatch = {k: v.float() for k, v in nbatch.items()}
+            if(self.is_state_based):
+                nimage = None
             else:
-                obs_batch = observations[eval_idxs]
-                acs_batch = actions[eval_idxs]
-                prev_obs_batch = previous_observations[eval_idxs]
-            
-            loss = self.model.eval_model(obs_batch, acs_batch, prev_obs_batch, self.train_params["loss"])
-            total_loss += loss*self.train_params["batch_size"]
+                nimage = nbatch['image'][:,:self.train_params['obs_horizon']].to(self.device)
+                
+            nagent_pos = nbatch['nagent_pos'][:,:self.train_params['obs_horizon']].to(self.device)
+            naction = nbatch['actions'].to(self.device)
+            B = nagent_pos.shape[0]
+
+            loss = self.model.eval_model(nimage, nagent_pos, naction)
+            total_loss += loss*B
         
-        test_loss = total_loss/len(observations)
-        return test_loss
+        return total_loss/len(self.eval_dataloader.dataset)

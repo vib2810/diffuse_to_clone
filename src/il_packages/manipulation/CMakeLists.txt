@@ -21,11 +21,6 @@ include_directories(
 
 ## Add executables
 catkin_install_python(PROGRAMS
-  src/record_trajectories_manual.py
-  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
-
-catkin_install_python(PROGRAMS
   src/manip_primitives.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

@@ -279,7 +279,7 @@ class MoveitPlanner():
     # 1: grasp, 2: goto hover place, 3: goto_place, 4: ungrasp
     FINAL_GRIPPER_WIDTH=0.02 # gripper width ranges from 0 to 0.08    
     NORM_DIFF_TOL = 0.04
-    def get_next_joint_planner_toy_joints(self, pick_pose: PoseStamped, place_pose: PoseStamped, curr_pose: Pose, curr_gripper_width = float):
+    def get_next_action_planner_toy(self, pick_pose: PoseStamped, place_pose: PoseStamped, curr_pose: Pose, curr_gripper_width = float):
         """
         Takes as input the current robot joints, pose and gripper width
         Returns the next joint position for the toy task
@@ -294,7 +294,7 @@ class MoveitPlanner():
             if norm_diff < self.NORM_DIFF_TOL:
                 self.current_toy_state = 0.5
                 print("Arrived at hover pick pose")
-                return self.get_next_joint_planner_toy_joints(pick_pose, place_pose, curr_pose, curr_gripper_width)
+                return self.get_next_action_planner_toy(pick_pose, place_pose, curr_pose, curr_gripper_width)
             
             # plan to hover pick pose
             next_action = self.get_next_pose_interp(hover_pose.pose, curr_pose)
@@ -307,7 +307,7 @@ class MoveitPlanner():
             if norm_diff < self.NORM_DIFF_TOL:
                 self.current_toy_state = 1
                 print("Arrived at pick pose")
-                return self.get_next_joint_planner_toy_joints(pick_pose, place_pose, curr_pose, curr_gripper_width)
+                return self.get_next_action_planner_toy(pick_pose, place_pose, curr_pose, curr_gripper_width)
             
             # plan to pick pose
             next_action = self.get_next_pose_interp(pick_pose.pose, curr_pose)
@@ -318,7 +318,7 @@ class MoveitPlanner():
             if curr_gripper_width < self.FINAL_GRIPPER_WIDTH:
                 self.current_toy_state = 2
                 print("Gripper Closed")
-                return self.get_next_joint_planner_toy_joints(pick_pose, place_pose, curr_pose, curr_gripper_width)
+                return self.get_next_action_planner_toy(pick_pose, place_pose, curr_pose, curr_gripper_width)
         
             # close gripper for 0.01 m
             next_gripper_width = curr_gripper_width - 0.01
@@ -332,7 +332,7 @@ class MoveitPlanner():
             if norm_diff < self.NORM_DIFF_TOL:
                 self.current_toy_state = 3
                 print("Arrived at hover place pose")
-                return self.get_next_joint_planner_toy_joints(pick_pose, place_pose, curr_pose, curr_gripper_width)
+                return self.get_next_action_planner_toy(pick_pose, place_pose, curr_pose, curr_gripper_width)
 
             # plan to hover place pose
             next_action = self.get_next_pose_interp(hover_pose.pose, curr_pose)
@@ -344,7 +344,7 @@ class MoveitPlanner():
             if norm_diff < self.NORM_DIFF_TOL:
                 self.current_toy_state = 4
                 print("Arrived at place pose")
-                return self.get_next_joint_planner_toy_joints(pick_pose, place_pose, curr_pose, curr_gripper_width)
+                return self.get_next_action_planner_toy(pick_pose, place_pose, curr_pose, curr_gripper_width)
             
             # plan to place pose
             next_action = self.get_next_pose_interp(place_pose.pose, curr_pose)
@@ -365,13 +365,13 @@ class MoveitPlanner():
             print("Invalid State")
             return None, None
     
-    def collect_toy_trajectories_joints(self, expt_data_dict):
+    def collect_toy_trajectories(self, expt_data_dict):
         """
         Plans a path from a randomly joint pose to another randomly sampled joint pose
         """
         pick_pose = expt_data_dict["pick_pose"]
         place_pose = expt_data_dict["place_pose"]
-        expt_folder = '/home/ros_ws/bags/recorded_trajectories/'+ expt_data_dict["experiment_name"]
+        expt_folder = '/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"]
         if not os.path.exists(expt_folder):
             os.makedirs(expt_folder)
 
@@ -405,7 +405,7 @@ class MoveitPlanner():
                 curr_pose_rigid = self.fa.get_pose()
                 curr_pose = get_posestamped(curr_pose_rigid.translation, [curr_pose_rigid.quaternion[1], curr_pose_rigid.quaternion[2], curr_pose_rigid.quaternion[3], curr_pose_rigid.quaternion[0]]).pose
                 curr_gripper_width = self.fa.get_gripper_width()
-                next_pose, next_gripper = self.get_next_joint_planner_toy_joints(pick_pose, place_pose, curr_pose, curr_gripper_width)
+                next_pose, next_gripper = self.get_next_action_planner_toy(pick_pose, place_pose, curr_pose, curr_gripper_width)
                 if next_pose is None and next_gripper is None:
                     break
                     
@@ -478,7 +478,7 @@ class MoveitPlanner():
             print("Saving Trajectory: ", traj_num)
                 
             # Save data
-            with open('/home/ros_ws/bags/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/'+ expt_data_dict["experiment_name"] + '_' + str(traj_num) + '.pkl', 'wb') as f:
+            with open('/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/'+ expt_data_dict["experiment_name"] + '_' + str(traj_num) + '.pkl', 'wb') as f:
                 pickle.dump(data, f)
 
 

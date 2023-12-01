@@ -1,1 +1,1 @@
-sudo chown -R $(whoami) bags/
+sudo chown -R $(whoami) logs/

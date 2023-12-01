@@ -37,10 +37,10 @@ def extract_obs_acts(expert_observations, expert_actions):
     return observations, actions, previous_observations, terminals
 
 def read_pkl_trajectory_data(train_trajectory_num, print_data=False, eval_split=None):
-    trajectory_path = '/home/ros_ws/bags/recorded_trajectories/recorded_trajectoriestrajectories_' + str(train_trajectory_num) + '.pkl'
+    trajectory_path = '/home/ros_ws/logs/recorded_trajectories/recorded_trajectoriestrajectories_' + str(train_trajectory_num) + '.pkl'
 
     # Load data from pickle file
-    expert_data = pickle.load(open('/home/ros_ws/bags/recorded_trajectories/trajectories_' + str(train_trajectory_num) + '.pkl', 'rb'))
+    expert_data = pickle.load(open('/home/ros_ws/logs/recorded_trajectories/trajectories_' + str(train_trajectory_num) + '.pkl', 'rb'))
     expert_observations = expert_data["observations"] # N x [(ep_len_i x ob_dim)]
     expert_actions = expert_data["actions"] # N x [(ep_len_i x ac_dim)]
     expert_target_pose = expert_data["target_poses"][0] # Assumes all have same target pose

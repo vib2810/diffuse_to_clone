@@ -8,7 +8,7 @@ Diffusion Models for Imitation Learning
 ## Setup:
 1. Make Docker Container (use sudo if docker is not added to the user group):
    ```
-   docker build -t diffuse_franka .
+   docker build -t diffusion .
    ```
 
 ## Running the code:
