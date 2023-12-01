@@ -40,6 +40,7 @@ class DiffusionTrainer(nn.Module):
         self.obs_dim = train_params["obs_dim"]
         self.obs_horizon = train_params["obs_horizon"]
         self.pred_horizon = train_params["pred_horizon"]
+        self.action_horizon = train_params["action_horizon"]
         self.device = train_params["device"]
         self.num_diffusion_iters = train_params["num_diffusion_iters"]
         self.num_ddim_iters = train_params["num_ddim_iters"]
@@ -137,22 +138,13 @@ class DiffusionTrainer(nn.Module):
     def eval(self):
         # self.nets.eval()
         self.inference_nets.eval()
-
-    def get_action_eval(self, nimage: torch.Tensor, nagent_pos: torch.Tensor):
+        
+    def get_all_actions_normalized(self, nimage: torch.Tensor, nagent_pos: torch.Tensor):
         """
-        Forward pass of the network
+        Returns the actions for the entire horizon (self.pred_horizon)
+        Assumes that the data is normalized
+        Returns normalized actions of shape (B, pred_horizon, action_dim)
         """
-
-        ##### This is dummy. We need to change this to our own code
-        ##### There's no self.stats['observations'] in our code
-        ##### Batches are already normalized in our case so no use of normalization here
-        # TODO: vib2810- Verify this!!
-        if not self.is_state_based:
-            nimage = normalize_data(nimage, self.stats['nimage'])
-            
-        # print devices of nagent_pos and self.stats['nagent_pos']
-        nagent_pos = normalize_data(nagent_pos, self.stats['nagent_pos'])
-
         with torch.no_grad():
             if(not self.is_state_based):
                 # encoder vision features
@@ -195,11 +187,38 @@ class DiffusionTrainer(nn.Module):
                     timestep=k,
                     sample=naction
                 ).prev_sample
-        # unnormalize action
-        naction = naction.detach()
-        # (B, pred_horizon, action_dim)
-        action_pred = unnormalize_data(naction, stats=self.stats['actions'])
-        return action_pred # shape (B, pred_horizon, action_dim)
+            
+            return naction
+    
+    def initialize_mpc_action(self):
+        self.mpc_actions = []
+
+    def get_mpc_action(self, nimage: torch.Tensor, nagent_pos: torch.Tensor):
+        """
+        Assumes data is not normalized
+        Meant to be called for live control of the robot
+        Assumes that the batch size is 1
+        """
+        # Compute next pred_horizon actions and store the next action_horizon actions in a list
+        if len(self.mpc_actions) == 0:
+            if not self.is_state_based:
+                nimage = normalize_data(nimage, self.stats['nimage'])
+                
+            # print devices of nagent_pos and self.stats['nagent_pos']
+            nagent_pos = normalize_data(nagent_pos, self.stats['nagent_pos'])
+            naction = self.get_all_actions_normalized(nimage, nagent_pos)
+            naction_unnormalized = unnormalize_data(naction, stats=self.stats['actions']) # (B, pred_horizon, action_dim)
+            assert naction_unnormalized.shape[0] == 1
+            
+            # append the next action_horizon actions to the list
+            for i in range(self.action_horizon):
+                self.mpc_actions.append(naction_unnormalized[0][i])
+        
+        # get the first action in the list
+        action = self.mpc_actions[0]
+        self.mpc_actions.pop(0)
+        return action.squeeze(0).cpu().numpy()
+            
         
     def train_model_step(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naction: torch.Tensor):
         if(not self.is_state_based):
@@ -261,6 +280,21 @@ class DiffusionTrainer(nn.Module):
         self.ema.copy_to(self.inference_nets.parameters())
     
     def eval_model(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naction: torch.Tensor):
-        model_actions = self.get_action_eval(nimage, nagent_pos)
+        """
+        Input: nimage, nagent_pos, naction in the dataset [normalized inputs]
+        Returns the MSE loss between the normalized model actions and the normalized actions in the dataset
+        """
+        model_actions = self.get_all_actions_normalized(nimage, nagent_pos)
         loss = self.loss_fn(model_actions, naction)
         return loss.item()
+
+    def put_network_on_device(self):
+        self.nets.to(self.device)
+        self.inference_nets.to(self.device)
+
+    def load_model_weights(self, model_weights):
+        """
+        Load the model weights
+        """
+        self.put_network_on_device()
+        self.load_state_dict(model_weights)

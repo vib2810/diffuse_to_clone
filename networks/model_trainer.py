@@ -9,7 +9,6 @@ import torch
 import sys
 sys.path.append("/home/ros_ws/")
 from tqdm.auto import tqdm
-from networks.bc_model import BCTrainer
 import torch
 import torch.nn as nn
 from dataset.dataset import DiffusionDataset
@@ -106,7 +105,7 @@ class ModelTrainer:
             epoch_loss = list()
             print("-----Epoch {}-----".format(epoch_idx))
             # batch loop
-            for nbatch in self.dataloader:
+            for nbatch in self.dataloader:  
                 # data normalized in dataset
                 # device transfer
 
@@ -131,7 +130,8 @@ class ModelTrainer:
                 self.writer.add_scalar('Loss/train', loss_cpu, global_step)
                 global_step += 1
                 
-            print("Epoch: {}, Step: {}, Loss: {}".format(epoch_idx, global_step, loss_cpu))
+                if(not global_step%50):
+                    print("Epoch: {}, Step: {}, Loss: {}".format(epoch_idx, global_step, loss_cpu))
             
             # evaluate model on test data
             self.model.run_after_epoch()

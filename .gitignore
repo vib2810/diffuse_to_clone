@@ -1,6 +1,7 @@
 .vscode
 *.zip
 logs/**
+bags/**
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
