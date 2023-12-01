@@ -63,7 +63,7 @@ if __name__ == "__main__":
         
     print("Collecting Experiment with Config:\n ", expt_data_dict)
     
-    franka_moveit.collect_toy_trajectories_joints(expt_data_dict)
+    franka_moveit.collect_toy_trajectories(expt_data_dict)
 
     print("Trajectories Collected")
     franka_moveit.fa.reset_joints()
