@@ -93,7 +93,7 @@ class DiffusionTrainer(nn.Module):
         )
         
         self.ddim_sampler = DDIMScheduler(
-            num_train_timesteps=self.num_ddim_iters,
+            num_train_timesteps=self.num_diffusion_iters,
             beta_schedule='squaredcos_cap_v2',
             clip_sample=True,
             prediction_type='epsilon'
@@ -139,12 +139,17 @@ class DiffusionTrainer(nn.Module):
         # self.nets.eval()
         self.inference_nets.eval()
         
-    def get_all_actions_normalized(self, nimage: torch.Tensor, nagent_pos: torch.Tensor):
+    def get_all_actions_normalized(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, sampler = "ddim"):
         """
+        Sampler: either ddpm or ddim
         Returns the actions for the entire horizon (self.pred_horizon)
         Assumes that the data is normalized
         Returns normalized actions of shape (B, pred_horizon, action_dim)
         """
+        if sampler not in ["ddpm", "ddim"]:
+            print("Sampler must be either ddpm or ddim")
+            return None
+        
         with torch.no_grad():
             if(not self.is_state_based):
                 # encoder vision features
@@ -166,14 +171,20 @@ class DiffusionTrainer(nn.Module):
                 
             B = nagent_pos.shape[0]   
             # initialize action from Guassian noise
-            noisy_action = torch.randn(
-                (B, self.pred_horizon, self.action_dim), device=self.device)
+            noisy_action = torch.randn( (B, self.pred_horizon, self.action_dim) , device=self.device)
             naction = noisy_action
 
+            if sampler == "ddpm":
+                eval_sampler = self.noise_scheduler
+                eval_itrs = self.num_diffusion_iters
+            if sampler == "ddim":
+                eval_sampler = self.ddim_sampler
+                eval_itrs = self.num_ddim_iters
+            
             # init scheduler
-            self.ddim_sampler.set_timesteps(self.num_ddim_iters)
+            eval_sampler.set_timesteps(eval_itrs)
 
-            for k in self.ddim_sampler.timesteps:
+            for k in eval_sampler.timesteps:
                 # predict noise
                 noise_pred = self.inference_nets['noise_pred_net'](
                     sample=naction,
@@ -182,7 +193,7 @@ class DiffusionTrainer(nn.Module):
                 )
 
                 # inverse diffusion step (remove noise)
-                naction = self.ddim_sampler.step(
+                naction = eval_sampler.step(
                     model_output=noise_pred,
                     timestep=k,
                     sample=naction
@@ -284,8 +295,9 @@ class DiffusionTrainer(nn.Module):
         Input: nimage, nagent_pos, naction in the dataset [normalized inputs]
         Returns the MSE loss between the normalized model actions and the normalized actions in the dataset
         """
-        model_actions = self.get_all_actions_normalized(nimage, nagent_pos)
-        loss = self.loss_fn(model_actions, naction)
+        model_actions_ddim = self.get_all_actions_normalized(nimage, nagent_pos, sampler="ddim")
+        loss_ddim = self.loss_fn(model_actions_ddim, naction)
+        loss = loss_ddim
         return loss.item()
 
     def put_network_on_device(self):
