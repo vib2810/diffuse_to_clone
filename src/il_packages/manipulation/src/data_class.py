@@ -6,6 +6,7 @@ import rospy
 import pickle
 import numpy as np
 from geometry_msgs.msg import Pose, PoseStamped
+from autolab_core import RigidTransform
 
 import scipy.spatial.transform as spt
 from scipy.spatial.transform import Rotation as R
@@ -34,7 +35,7 @@ class Data():
     def goto_joint(self, joint_goal):
         self.fa.goto_joints(joint_goal, duration=5, dynamic=True, buffer_time=10)
 
-    MOVE_SPEED = 0.02 # m/s
+    POSE_DIFF_TOL = 0.02 # m/s
     def get_next_pose_interp(self, target_pose: Pose, curr_pose: Pose):
         """
         Returns the next tool pose to goto from the current pose of the robot given a target pose 
@@ -48,10 +49,10 @@ class Data():
         target_orientation = r.as_euler('zyx', degrees=True)
         
         unit_diff_in_position = (target_position - current_position) / np.linalg.norm(target_position - current_position)
-        if np.linalg.norm(target_position - current_position) < self.MOVE_SPEED:
-            next_position = target_position
-        else:
-            next_position = current_position + unit_diff_in_position*self.MOVE_SPEED
+        # if np.linalg.norm(target_position - current_position) < self.POSE_DIFF_TOL:
+        #     next_position = target_position
+        # else:
+        next_position = current_position + unit_diff_in_position*self.POSE_DIFF_TOL
 
         diff_in_yaw_deg = target_orientation[0] - current_orientation[0]
         if abs(diff_in_yaw_deg) < 0.5:
@@ -66,10 +67,14 @@ class Data():
         next_pose.position.x = next_position[0]
         next_pose.position.y = next_position[1]
         next_pose.position.z = next_position[2]
-        next_pose.orientation.x = next_orientation[0]
-        next_pose.orientation.y = next_orientation[1]
-        next_pose.orientation.z = next_orientation[2]
-        next_pose.orientation.w = next_orientation[3]
+        # next_pose.orientation.x = next_orientation[0]
+        # next_pose.orientation.y = next_orientation[1]
+        # next_pose.orientation.z = next_orientation[2]
+        # next_pose.orientation.w = next_orientation[3]
+        next_pose.orientation.x = 1
+        next_pose.orientation.y = 0
+        next_pose.orientation.z = 0
+        next_pose.orientation.w = 0
         return next_pose
     
     def get_current_pose_norm(self, target_pose: Pose, fa_pose: Pose):
@@ -95,8 +100,9 @@ class Data():
         return target_pose
     
     current_toy_state = 0  
-    FINAL_GRIPPER_WIDTH = 0.02 # gripper width ranges from 0 to 0.08    
-    NORM_DIFF_TOL = 0.04
+    FINAL_GRIPPER_WIDTH = 0.045 # slightly highter than grasp width
+    GRASP_WIDTH = 0.040 # slightly lower than grasp width
+    NORM_DIFF_TOL = 0.05
     def get_next_joint_planner_toy_joints(self, curr_pose: Pose, curr_gripper_width = float):
         """
         Takes as input the current robot joints, pose and gripper width
@@ -116,6 +122,7 @@ class Data():
             hover_pose.pose.position.z += 0.2
             # check if arrived at hover pick pose
             norm_diff = self.get_current_pose_norm(hover_pose, curr_pose)
+            print("Norm Diff: ", norm_diff)
             if norm_diff < self.NORM_DIFF_TOL:
                 self.previous_toy_state = 0
                 self.current_toy_state = 1
@@ -189,6 +196,7 @@ class Data():
         elif self.current_toy_state == 4: # place
             # check if arrived at place pose
             norm_diff = self.get_current_pose_norm(self.place_pose, curr_pose)
+            print("Norm Diff: ", norm_diff)
             if norm_diff < self.NORM_DIFF_TOL:
                 self.previous_toy_state = 4
                 self.current_toy_state = 5
@@ -214,7 +222,8 @@ class Data():
         else:
             print("Invalid State")
             return None, None
-    
+        
+    gripped = False
     def collect_trajectories_joints(self, expt_data_dict):
         self.object1_pose = expt_data_dict["init1_pose"]
         self.object2_pose = expt_data_dict["init2_pose"]
@@ -238,7 +247,7 @@ class Data():
             self.objects_done = 0
             self.target1_pose = self.get_target_pose(self.target1_center_pose)
             self.target2_pose = self.get_target_pose(self.target2_center_pose)
-
+            
             # Choose object to pick first
             if np.random.rand() < 0.5:
                 self.object_chosen = 1
@@ -277,7 +286,7 @@ class Data():
                     
                 print("Counter: ", counter)
                 print("Curr Pose: ", curr_pose, "\n Curr Gripper Width: ", curr_gripper_width)
-                print("Next Pose: ", next_pose, "\n Next Gripper Width: ", next_gripper)
+                print("Next Pose: ", next_pose, "\n Next Gripper Width: ", next_gripper, "gripped: ", self.gripped)
                 print("***************"*3)
                 print()
 
@@ -307,7 +316,18 @@ class Data():
                 self.pub.publish(ros_msg)
 
                 # gripper actuate
-                self.fa.goto_gripper(next_gripper, block=False, speed=0.2)
+                if (next_gripper > (curr_gripper_width + 0.008)):
+                    self.gripped = False
+                if (next_gripper - self.GRASP_WIDTH < 0.01) and (not self.gripped):
+                    # self.fa.goto_gripper(width = FC.GRIPPER_WIDTH_MIN, 
+                    #                      grasp=True, block=False, force = FC.GRIPPER_MAX_FORCE)
+                    # print("calling with grasp")
+                    self.fa.stop_gripper()
+                    self.fa.close_gripper()
+                    self.gripped = True
+                elif not self.gripped:
+                    print("calling without grasp")
+                    self.fa.goto_gripper(next_gripper, block=False, speed=0.2)
                 counter += 1
                 rate.sleep()
             
@@ -347,7 +367,6 @@ class Data():
             with open('/home/ros_ws/bags/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/'+ expt_data_dict["experiment_name"] + '_' + str(traj_num) + '.pkl', 'wb') as f:
                 pickle.dump(data, f)
 
-
             self.reset()
 
     def reset(self):
@@ -355,81 +374,44 @@ class Data():
         Resets the objects to new poses
         """
         print("Resetting")
-        LOWER_X, LOWER_Y, LOWER_Z = 0.5, -0.3, 0.008
-        UPPER_X, UPPER_Y, _ = 0.6, 0.3, 0.008 
+        LOWER_X, LOWER_Y, LOWER_Z = 0.4, -0.33, 0.014
+        UPPER_X, UPPER_Y, _ = 0.6, 0.06, 0.014
         self.object1_pose = get_posestamped(np.array([np.random.uniform(LOWER_X, UPPER_X), np.random.uniform(LOWER_Y, UPPER_Y), LOWER_Z]),
                                             np.array([1,0,0,0]))
         self.object2_pose = get_posestamped(np.array([np.random.uniform(LOWER_X, UPPER_X), np.random.uniform(LOWER_Y, UPPER_Y), LOWER_Z]),
                                             np.array([1,0,0,0]))
+        if self.object_chosen == 1:
+            reset1_from_pose = getRigidTransform(self.target2_pose.pose)
+            reset2_from_pose = getRigidTransform(self.target1_pose.pose)
+            reset1_to_pose = getRigidTransform(self.object2_pose.pose)
+            reset2_to_pose = getRigidTransform(self.object1_pose.pose)
+        else:
+            reset1_from_pose = getRigidTransform(self.target1_pose.pose)
+            reset2_from_pose = getRigidTransform(self.target2_pose.pose)
+            reset1_to_pose = getRigidTransform(self.object1_pose.pose)
+            reset2_to_pose = getRigidTransform(self.object2_pose.pose)
 
-        if self.object_chosen == 1: # First object was 1
-            # Last object was 2
-            self.fa.goto_pose(self.target2_pose.pose, duration=120, dynamic=True, buffer_time=10)
-            # Close gripper
-            self.fa.goto_gripper(0.02, block=False, speed=0.2)
-            # Move to hover pose
-            self.object2_pose.pose.position.z += 0.2
-            self.fa.goto_pose(self.object2_pose.pose, duration=120, dynamic=True, buffer_time=10)
-            # Move to object 2 new pose
-            self.object2_pose.pose.position.z -= 0.2
-            self.fa.goto_pose(self.object2_pose.pose, duration=120, dynamic=True, buffer_time=10)
-            # Open gripper
-            self.fa.goto_gripper(0.08, block=False, speed=0.2)
-            # Move to hover pose
-            self.object2_pose.pose.position.z += 0.2
-            self.fa.goto_pose(self.object2_pose.pose, duration=120, dynamic=True, buffer_time=10)
-            # Move to object 1 target pose
-            self.target1_pose.pose.position.z += 0.2
-            self.fa.goto_pose(self.target1_pose.pose, duration=120, dynamic=True, buffer_time=10)
-            self.target1_pose.pose.position.z -= 0.2
-            self.fa.goto_pose(self.target1_pose.pose, duration=120, dynamic=True, buffer_time=10)
-            # Close gripper
-            self.fa.goto_gripper(0.02, block=False, speed=0.2)
-            # Move to hover pose
-            self.object1_pose.pose.position.z += 0.2
-            self.fa.goto_pose(self.object1_pose.pose, duration=120, dynamic=True, buffer_time=10)
-            # Move to object 1 new pose
-            self.object1_pose.pose.position.z -= 0.2
-            self.fa.goto_pose(self.object1_pose.pose, duration=120, dynamic=True, buffer_time=10)
-            # Open gripper
-            self.fa.goto_gripper(0.08, block=False, speed=0.2)
-            # Move to hover pose
-            self.object1_pose.pose.position.z += 0.2
-            self.fa.goto_pose(self.object1_pose.pose, duration=120, dynamic=True, buffer_time=10)
-        else: # First object was 2
-            # Last object was 1
-            self.fa.goto_pose(self.target1_pose.pose, duration=120, dynamic=True, buffer_time=10)
-            # Close gripper
-            self.fa.goto_gripper(0.02, block=False, speed=0.2)
-            # Move to hover pose
-            self.object1_pose.pose.position.z += 0.2
-            self.fa.goto_pose(self.object1_pose.pose, duration=120, dynamic=True, buffer_time=10)
-            # Move to object 1 new pose
-            self.object1_pose.pose.position.z -= 0.2
-            self.fa.goto_pose(self.object1_pose.pose, duration=120, dynamic=True, buffer_time=10)
-            # Open gripper
-            self.fa.goto_gripper(0.08, block=False, speed=0.2)
-            # Move to hover pose
-            self.object1_pose.pose.position.z += 0.2
-            self.fa.goto_pose(self.object1_pose.pose, duration=120, dynamic=True, buffer_time=10)
-            # Move to object 2 target pose
-            self.target2_pose.pose.position.z += 0.2
-            self.fa.goto_pose(self.target2_pose.pose, duration=120, dynamic=True, buffer_time=10)
-            self.target2_pose.pose.position.z -= 0.2
-            self.fa.goto_pose(self.target2_pose.pose, duration=120, dynamic=True, buffer_time=10)
-            # Close gripper
-            self.fa.goto_gripper(0.02, block=False, speed=0.2)
-            # Move to hover pose
-            self.object2_pose.pose.position.z += 0.2
-            self.fa.goto_pose(self.object2_pose.pose, duration=120, dynamic=True, buffer_time=10)
-            # Move to object 2 new pose
-            self.object2_pose.pose.position.z -= 0.2
-            self.fa.goto_pose(self.object2_pose.pose, duration=120, dynamic=True, buffer_time=10)
-            # Open gripper
-            self.fa.goto_gripper(0.08, block=False, speed=0.2)
-            # Move to hover pose
-            self.object2_pose.pose.position.z += 0.2
-            self.fa.goto_pose(self.object2_pose.pose, duration=120, dynamic=True, buffer_time=10)
+        self.fa.goto_pose(reset1_from_pose, duration=5)
+        self.fa.close_gripper()
+        reset1_to_pose.translation[2] += 0.2
+        self.fa.goto_pose(reset1_to_pose, duration=5)
+        reset1_to_pose.translation[2] -= 0.2
+        self.fa.goto_pose(reset1_to_pose, duration=5)
+        self.fa.open_gripper()
+        reset1_to_pose.translation[2] += 0.2
+        self.fa.goto_pose(reset1_to_pose, duration=5)
+        reset2_from_pose.translation[2] += 0.2
+        self.fa.goto_pose(reset2_from_pose, duration=5)
+        reset2_from_pose.translation[2] -= 0.2
+        self.fa.goto_pose(reset2_from_pose, duration=5)
+        self.fa.close_gripper()
+        reset2_to_pose.translation[2] += 0.2
+        self.fa.goto_pose(reset2_to_pose, duration=5)
+        reset2_to_pose.translation[2] -= 0.2
+        self.fa.goto_pose(reset2_to_pose, duration=5)
+        self.fa.open_gripper()
+        reset2_to_pose.translation[2] += 0.2
+        self.fa.goto_pose(reset2_to_pose, duration=5)
 
         print("Reset Done")
         print("--------------Trajectory Done--------------")
@@ -480,6 +462,15 @@ def pose_to_transformation_matrix(pose):
     T[0:3, 0:3] = r.as_matrix()
     return T
 
+def getRigidTransform(pose):
+    translation = np.array([pose.position.x, pose.position.y, pose.position.z])
+    r = R.from_quat([pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w])
+    rotation = r.as_matrix()
+    from_frame = "franka_tool" 
+    to_frame = "world"
+    rt = RigidTransform(rotation, translation, from_frame, to_frame)
+    return rt
+
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         print("Please provide experiment_name, num_trajs_to_collect, eval_mode[optional] as command line arguments")
@@ -505,15 +496,19 @@ if __name__ == "__main__":
     expt_data_dict["experiment_name"] = "toy_expt_"+ experiment_name
     expt_data_dict["n_trajectories"] = num_trajs_to_collect
     expt_data_dict["eval_mode"] = eval_mode
-    expt_data_dict["pick_pose"] = get_posestamped(np.array([0.52, -0.24537024, 0.008]),
+    expt_data_dict["init1_pose"] = get_posestamped(np.array([0.47739821, -0.2, 0.014]),
                                                   np.array([1,0,0,0]))
-    expt_data_dict["place_pose"] = get_posestamped(np.array([0.52, 0.15177857, 0.008]),
+    expt_data_dict["init2_pose"] = get_posestamped(np.array([0.60648338, -0.2, 0.014]),
+                                                   np.array([1,0,0,0]))
+    expt_data_dict["target1_pose"] = get_posestamped(np.array([0.4758666, 0.23351082, 0.014]),
+                                                  np.array([1,0,0,0]))
+    expt_data_dict["target2_pose"] = get_posestamped(np.array([0.63461075, 0.2357518, 0.014]),
                                                    np.array([1,0,0,0]))
 
         
     print("Collecting Experiment with Config:\n ", expt_data_dict)
     
-    data.collect_toy_trajectories_joints(expt_data_dict)
+    data.collect_trajectories_joints(expt_data_dict)
 
     print("Trajectories Collected")
     data.fa.reset_joints()

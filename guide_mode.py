@@ -16,7 +16,6 @@ if __name__ == "__main__":
     
     start = time.time()
     fa = FrankaArm()
-    fa.close_gripper()
     fa.open_gripper()
     fa.run_guide_mode(10000,block=False)
 
