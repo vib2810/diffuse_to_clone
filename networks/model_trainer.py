@@ -97,7 +97,7 @@ class ModelTrainer:
                 train_params=train_params,
                 device = self.device if torch.cuda.is_available() else "cpu"
             )
-        self.best_eval_loss_noisy = 1e10
+        self.best_eval_loss = 1e10
 
     def train_model(self, test_eval_split_ratio=0.1):
         global_step = 0
@@ -137,11 +137,15 @@ class ModelTrainer:
             self.model.run_after_epoch()
             eval_loss = self.evaluate_model(nimage, nagent_pos, naction)
             self.writer.add_scalar('Loss/eval', eval_loss, global_step)
-        # save model
-        self.save_model()
+            if eval_loss < self.best_eval_loss:
+                self.best_model_epoch = epoch_idx
+                self.best_eval_loss = eval_loss
+                self.save_model()
                 
     def save_model(self, step=None):
-        save_dict = {'model_weights': self.model.state_dict()}
+        save_dict = {}
+        save_dict["model_weights"] = self.model.state_dict()
+        save_dict["best_model_epoch"] = self.best_model_epoch
         
         # add train params to save_dict
         save_dict.update(self.train_params)
