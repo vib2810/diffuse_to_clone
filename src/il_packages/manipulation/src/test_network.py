@@ -8,8 +8,6 @@ from il_msgs.msg import RecordJointsAction, RecordJointsResult, RecordJointsGoal
 import torch
 
 sys.path.append("/home/ros_ws/src/il_packages/manipulation/src")
-from moveit_class import moveit_planner
-
 sys.path.append("/home/ros_ws/")
 from networks.diffusion_model import DiffusionTrainer
 from src.git_packages.frankapy.frankapy import FrankaArm, SensorDataMessageType
@@ -40,7 +38,7 @@ class ModelTester:
         stored_pt_file = torch.load("/home/ros_ws/logs/models/" + model_name + ".pt", map_location=torch.device('cpu'))
         self.train_params = [key for key in stored_pt_file.keys() if key != "model_weights"]
         if str(stored_pt_file["model_class"]).find("DiffusionTrainer") != -1:
-            print("Loading BC Model")
+            print("Loading Diffusion Model")
             self.model = DiffusionTrainer(
                 train_params=self.train_params,
                 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -55,19 +53,20 @@ class ModelTester:
         # Put model in eval mode
         self.model.eval()
 
-        # move robot to a valid start position
-        self.franka_moveit = moveit_planner()
-        
+        # Initialize frankapy
+        self.fa = FrankaArm(init_node = False)
+        self.pub = rospy.Publisher(FC.DEFAULT_SENSOR_PUBLISHER_TOPIC, SensorDataGroup, queue_size=1000)
+
         # Reset joints
-        self.franka_moveit.fa.reset_joints()
+        self.fa.reset_joints()
 
         if "obs_horizon" not in self.train_params:
             self.train_params["obs_horizon"] = 1
         
         # Initialize sequence buffer with zeoros of size obs_horizon
         self.seq_buffer = [np.zeros(self.train_params["ac_dim"])]*self.train_params["obs_horizon"]
-        
-        self.prev_joint_norm_diffs = [0]*10 # frames to check for small norm change
+        self.prev_joints = self.fa.get_joints()
+
 
     def test_model(self, N_EVALS=20):
         eval_counter = 0
@@ -86,8 +85,8 @@ class ModelTester:
             # Run the control loop
             self.test_model_once()
                 
+        self.fa.reset_joints()        
         print("Done")
-        self.franka_moveit.fa.reset_joints()
     
     def test_model_once(self):
         """
@@ -126,7 +125,7 @@ class ModelTester:
                 feedback_controller_sensor_msg=sensor_proto2ros_msg(
                     fb_ctrlr_proto, SensorDataMessageType.CARTESIAN_IMPEDANCE)
             )
-            self.franka_moveit.pub.publish(ros_msg)
+            self.pub.publish(ros_msg)
             self.fa.goto_gripper(next_gripper, block=False, speed=0.2)
             
             # Break if counter exceeds num_steps
@@ -143,43 +142,30 @@ class ModelTester:
                 term_proto_msg, SensorDataMessageType.SHOULD_TERMINATE)
             )
         
-        self.franka_moveit.pub.publish(ros_msg)
-        self.franka_moveit.fa.stop_skill()
+        self.pub.publish(ros_msg)
+        self.fa.stop_skill()
         return
-
-    def terminate_run(self, curr_pose):
-        norm_diff = get_pose_norm(curr_pose, self.target_pose)
-        print(f"Norm diff: {norm_diff}")
-        # If norm diff is less than threshold, break
-        if(norm_diff<self.GOAL_THRESHOLD):
-            print("Break due to goal joints")
-            return True, f"Goal Reached | Norm diff {norm_diff} < {self.GOAL_THRESHOLD}"
-
-        # If change in norm_diff is small, break
-        if self.prev_norm_diff[0] is not None:
-            norm_change = abs(norm_diff-self.prev_norm_diff[0])
-            print(f"Norm change: {norm_change}")
-            if norm_change<self.SMALL_NORM_CHANGE_BREAK_THRESHOLD:
-                print(f"Break due to small norm change: {norm_change} < {self.SMALL_NORM_CHANGE_BREAK_THRESHOLD}")
-                return True, f"Small Norm Change | {norm_change} < {self.SMALL_NORM_CHANGE_BREAK_THRESHOLD}"      
-        print()
-        self.prev_norm_diff.pop(0)
-        self.prev_norm_diff.append(norm_diff)
-        return False, None
 
     def get_next_action(self):
         """
         Return next action of type (Pose, gripper_width)
         """
         # Read current pose and joints
-        curr_pose_rigid = self.franka_moveit.fa.get_pose()
+        curr_pose_rigid = self.fa.get_pose()
         curr_pose = get_posestamped(curr_pose_rigid.translation, [curr_pose_rigid.quaternion[1], curr_pose_rigid.quaternion[2], curr_pose_rigid.quaternion[3], curr_pose_rigid.quaternion[0]]).pose
-        curr_joints = self.franka_moveit.fa.get_joints()
-        curr_gripper = self.franka_moveit.fa.get_gripper()
+        curr_joints = self.fa.get_joints()
+        curr_gripper = self.fa.get_gripper()
 
         # Append current joints to sequence buffer
         self.seq_buffer.pop(0)
         self.seq_buffer.append(np.concatenate((np.array(curr_joints), curr_gripper)))
+        
+        # Append norm diff to prev_joint_norm_diffs 
+        norm_diff = np.linalg.norm(self.prev_joints - curr_joints)
+        if norm_diff < self.SMALL_NORM_CHANGE_BREAK_THRESHOLD:
+            print(f"Break due to small norm change: {norm_diff} < {self.SMALL_NORM_CHANGE_BREAK_THRESHOLD}")
+            return None, None
+        self.prev_joints = curr_joints
         
         # Get next action
         if len(self.seq_buffer) == 1:
@@ -207,7 +193,7 @@ class ModelTester:
         norm_diff_joints = np.linalg.norm(next_pose.position - curr_pose.position)
         if(norm_diff_joints>self.ACTION_LIMIT_THRESHOLD):
             print(f"Break due to action limits {norm_diff_joints} > {self.ACTION_LIMIT_THRESHOLD}")
-            return curr_pose_rigid, curr_joints, None, f"Action Limits | {norm_diff_joints} > {self.ACTION_LIMIT_THRESHOLD}"
+            return None, None
         
         # Return next action
         return next_pose, next_gripper
