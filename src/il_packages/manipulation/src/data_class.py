@@ -109,12 +109,17 @@ class Data():
         Returns the next joint position for the toy task
         Returns: next_action(7x1), gripper_width
 
+        STATE MACHINE states
         0: Go to pick hover 
         1: Go to pick
         2: Grasp
         3: Go to place hover
         4: Go to place
         5: Ungrasp
+
+        STATE MACHINE transitions
+        0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 3 -> 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 3 (without bag drop)
+        0 -> 1 -> 2 -> 0 -> 5 -> 1 -> 2 -> 3 -> 4 -> 5 -> 3 -> 0 -> 1 -> 2 -> 0 -> 5 -> 1 -> 2 -> 3 -> 4 -> 5 -> 3 (with bag drop)
         """
         print("Current Toy State: ", self.current_toy_state)
         if self.current_toy_state == 0: # pick hover
@@ -125,10 +130,13 @@ class Data():
             print("Norm Diff: ", norm_diff)
             if norm_diff < self.NORM_DIFF_TOL:
                 self.previous_toy_state = 0
-                self.current_toy_state = 1
+                if  not self.drop_bag:
+                    self.current_toy_state = 1
+                else:
+                    self.current_toy_state = 5
                 print("Arrived at hover pick pose")
                 return self.get_next_joint_planner_toy_joints(curr_pose, curr_gripper_width)
-            
+                
             # plan to hover pick pose
             next_action = self.get_next_pose_interp(hover_pose.pose, curr_pose)
             return next_action, curr_gripper_width
@@ -151,7 +159,12 @@ class Data():
             # check if current gripper width is less than FINAL_GRIPPER_WIDTH
             if curr_gripper_width < self.FINAL_GRIPPER_WIDTH:
                 self.previous_toy_state = 2
-                self.current_toy_state = 3
+                if not self.drop_bag:
+                    self.drop_bag = True
+                    self.current_toy_state = 0
+                else:
+                    self.drop_bag = False
+                    self.current_toy_state = 3
                 print("Gripper Closed")
                 return self.get_next_joint_planner_toy_joints(curr_pose, curr_gripper_width)
         
@@ -211,11 +224,14 @@ class Data():
             # check if current gripper width is more than FINAL_GRIPPER_WIDTH
             if curr_gripper_width > 0.07:
                 self.previous_toy_state = 5
-                self.current_toy_state = 3
+                if self.drop_bag: 
+                    self.current_toy_state = 1
+                else:
+                    self.current_toy_state = 3
                 print("Gripper Opened, action complete")
                 return self.get_next_joint_planner_toy_joints(curr_pose, curr_gripper_width)
             
-            # open gripper for 0.01 m
+            # open gripper for 0.01 m 
             next_gripper_width = curr_gripper_width + 0.01
             return curr_pose, next_gripper_width
         
@@ -259,6 +275,7 @@ class Data():
                 self.place_pose = self.target2_pose
                 
             # reset to home position
+            self.drop_bag = False
             self.previous_toy_state = -1
             self.current_toy_state = 0
             self.fa.reset_joints()
