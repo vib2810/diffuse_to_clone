@@ -4,6 +4,7 @@
 import sys
 sys.path.append("/home/ros_ws/")
 sys.path.append("/home/ros_ws/dataset")
+sys.path.append("/home/ros_ws/networks")
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -105,7 +106,8 @@ class DiffusionTrainer(nn.Module):
         # convert stats to tensors and put on device
         for key in self.stats.keys():
             for subkey in self.stats[key].keys():
-                self.stats[key][subkey] = torch.tensor(self.stats[key][subkey].astype(np.float32)).to(self.device)
+                if type(self.stats[key][subkey]) != torch.Tensor:
+                    self.stats[key][subkey] = torch.tensor(self.stats[key][subkey].astype(np.float32)).to(self.device)
 
         # Exponential Moving Average
         # accelerates training and improves stability
@@ -303,7 +305,12 @@ class DiffusionTrainer(nn.Module):
     def put_network_on_device(self):
         self.nets.to(self.device)
         self.inference_nets.to(self.device)
-
+        # put everything in stats on device
+        for key in self.stats.keys():
+            for subkey in self.stats[key].keys():
+                if type(self.stats[key][subkey]) == torch.Tensor:
+                    self.stats[key][subkey] = self.stats[key][subkey].to(self.device)
+                    
     def load_model_weights(self, model_weights):
         """
         Load the model weights

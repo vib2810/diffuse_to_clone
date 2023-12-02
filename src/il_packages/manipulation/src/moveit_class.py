@@ -279,6 +279,12 @@ class MoveitPlanner():
     # 1: grasp, 2: goto hover place, 3: goto_place, 4: ungrasp
     FINAL_GRIPPER_WIDTH=0.02 # gripper width ranges from 0 to 0.08    
     NORM_DIFF_TOL = 0.04
+    correct_gripper_widths = {0: 0.08, 
+                              0.5: 0.08, 
+                              1: FINAL_GRIPPER_WIDTH,
+                              2: FINAL_GRIPPER_WIDTH,
+                              3: FINAL_GRIPPER_WIDTH, 
+                              4: 0.08}
     def get_next_action_planner_toy(self, pick_pose: PoseStamped, place_pose: PoseStamped, curr_pose: Pose, curr_gripper_width = float):
         """
         Takes as input the current robot joints, pose and gripper width
@@ -298,7 +304,7 @@ class MoveitPlanner():
             
             # plan to hover pick pose
             next_action = self.get_next_pose_interp(hover_pose.pose, curr_pose)
-            return next_action, curr_gripper_width
+            return next_action, self.correct_gripper_widths[self.current_toy_state]
         
         elif self.current_toy_state == 0.5: # hover pick
             # check if arrived at pick pose
@@ -311,7 +317,7 @@ class MoveitPlanner():
             
             # plan to pick pose
             next_action = self.get_next_pose_interp(pick_pose.pose, curr_pose)
-            return next_action, curr_gripper_width
+            return next_action, self.correct_gripper_widths[self.current_toy_state]
             
         elif self.current_toy_state == 1: # grasp
             # check if current gripper width is less than FINAL_GRIPPER_WIDTH
@@ -321,7 +327,7 @@ class MoveitPlanner():
                 return self.get_next_action_planner_toy(pick_pose, place_pose, curr_pose, curr_gripper_width)
         
             # close gripper for 0.01 m
-            next_gripper_width = curr_gripper_width - 0.01
+            next_gripper_width = max(curr_gripper_width - 0.01, self.FINAL_GRIPPER_WIDTH)
             return curr_pose, next_gripper_width
         
         elif self.current_toy_state == 2: # goto hover place
@@ -336,7 +342,7 @@ class MoveitPlanner():
 
             # plan to hover place pose
             next_action = self.get_next_pose_interp(hover_pose.pose, curr_pose)
-            return next_action, curr_gripper_width
+            return next_action, self.correct_gripper_widths[self.current_toy_state]
         
         elif self.current_toy_state == 3: # goto place
             # check if arrived at place pose
@@ -348,7 +354,7 @@ class MoveitPlanner():
             
             # plan to place pose
             next_action = self.get_next_pose_interp(place_pose.pose, curr_pose)
-            return next_action, curr_gripper_width
+            return next_action, self.correct_gripper_widths[self.current_toy_state]
         
         elif self.current_toy_state == 4: # ungrasp
             # check if current gripper width is more than FINAL_GRIPPER_WIDTH
@@ -358,7 +364,7 @@ class MoveitPlanner():
                 return None, None
             
             # open gripper for 0.01 m
-            next_gripper_width = curr_gripper_width + 0.01
+            next_gripper_width = min(curr_gripper_width + 0.01, 0.08)
             return curr_pose, next_gripper_width
         
         else:
@@ -408,6 +414,14 @@ class MoveitPlanner():
                 next_pose, next_gripper = self.get_next_action_planner_toy(pick_pose, place_pose, curr_pose, curr_gripper_width)
                 if next_pose is None and next_gripper is None:
                     break
+                
+                # add noise to x,y,z and gripper with std expt_data_dict["noise_std"]
+                if not expt_data_dict["eval_mode"]:
+                    next_pose.position.x += np.random.normal(0, expt_data_dict["noise_std"])
+                    next_pose.position.y += np.random.normal(0, expt_data_dict["noise_std"])
+                    next_pose.position.z += np.random.normal(0, expt_data_dict["noise_std"])
+                    next_gripper += np.random.normal(0, expt_data_dict["noise_std"])
+                    next_gripper = np.clip(next_gripper, 0, 0.08)
                     
                 print("Counter: ", counter)
                 print("Curr Pose: ", curr_pose, "\n Curr Gripper Width: ", curr_gripper_width)

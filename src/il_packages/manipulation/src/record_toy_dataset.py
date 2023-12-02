@@ -59,6 +59,7 @@ if __name__ == "__main__":
                                                   np.array([1,0,0,0]))
     expt_data_dict["place_pose"] = get_posestamped(np.array([0.52, 0.15177857, 0.008]),
                                                    np.array([1,0,0,0]))
+    expt_data_dict["noise_std"] = 0.0025
 
         
     print("Collecting Experiment with Config:\n ", expt_data_dict)
