@@ -5,6 +5,8 @@ import copy
 import rospy
 import pickle
 import numpy as np
+from sensor_msgs.msg import Image
+from audio_common_msgs.msg import AudioData
 from geometry_msgs.msg import Pose, PoseStamped
 from autolab_core import RigidTransform
 
@@ -28,6 +30,20 @@ class Data():
     def __init__(self) -> None:
         self.pub = rospy.Publisher(FC.DEFAULT_SENSOR_PUBLISHER_TOPIC, SensorDataGroup, queue_size=1000)
         self.fa = FrankaArm(init_node = False)
+
+        self.audio_buffer_size = 32000
+        self.audio_data = [0]*self.audio_buffer_size
+
+        rospy.Subscriber('/audio/audio', AudioData, self.audio_callback)
+        rospy.Subscriber('/camera/color/image_raw', Image, self.image_callback)
+
+    def audio_callback(self, data):
+        self.audio_data.extend(data.data)
+        if len(self.audio_data) > self.audio_buffer_size:
+            self.audio_data = self.audio_data[-self.audio_buffer_size:]
+
+    def image_callback(self, data):
+        self.image = data.data
 
     def reset_joints(self):
         self.fa.reset_joints()
@@ -364,7 +380,9 @@ class Data():
                 "observations": obs,
                 "actions": acts,
                 "timestamps": timesteps,
-                "tool_poses": tool_poses_i
+                "tool_poses": tool_poses_i,
+                "audio_data": self.audio_data,
+                "image_data": self.image
             }
             print("Recorded Trajectory of length: ", len(obs))
             
