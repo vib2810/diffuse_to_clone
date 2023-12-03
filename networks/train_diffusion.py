@@ -35,10 +35,10 @@ if __name__ == "__main__":
 
     # Make the train params
     train_params = {
-        "batch_size": 64,
-        "eval_batch_size": 64,
+        "batch_size": 256,
+        "eval_batch_size": 256,
         "num_workers": 4,
-        "num_epochs": 200,
+        "num_epochs": 150,
         "learning_rate": 1e-4,
         "loss": nn.functional.mse_loss,
         'use_stats': False,

@@ -160,11 +160,13 @@ def parse_actions(actions_msg:list, mode='xyz_quat'):
         quat_x, quat_y, quat_z, quat_w = pose.orientation.x, pose.orientation.y, \
                                         pose.orientation.z, pose.orientation.w
         if(mode=='xyz_quat'):
-            actions.append([x,y,z,quat_x, quat_y, quat_z, quat_w,gripper_width])
+            actions.append([x,y,z,quat_x, quat_y, quat_z, quat_w, gripper_width])
         elif(mode=='xyz_euler'):
             # convert to euler
             roll, pitch, yaw = tf.transformations.euler_from_quaternion([quat_x, quat_y, quat_z, quat_w])
-            actions.append([x,y,z,roll, pitch, yaw])
+            actions.append([x,y,z,roll, pitch, yaw, gripper_width])
+        elif(mode=='xyz'):
+            actions.append([x,y,z,gripper_width])
 
     actions = np.array(actions)
 

@@ -49,7 +49,7 @@ class DiffusionDataset(torch.utils.data.Dataset):
             ### Image data not present
             # image_data = parse_images(dataset_root['images'])   
             state_data = parse_states(dataset_root['observations'])
-            actions_data = parse_actions(dataset_root['actions'])
+            actions_data = parse_actions(dataset_root['actions'], mode='xyz')
             # tool_poses_data = parse_poses(dataset_root['tool_poses'], mode='xyz_quat')
             self.is_img_available = 'images' in dataset_root.keys()
             if self.is_img_available:

@@ -206,7 +206,7 @@ class DiffusionTrainer(nn.Module):
     def initialize_mpc_action(self):
         self.mpc_actions = []
 
-    def get_mpc_action(self, nimage: torch.Tensor, nagent_pos: torch.Tensor):
+    def get_mpc_action(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, sampler = "ddim"):
         """
         Assumes data is not normalized
         Meant to be called for live control of the robot
@@ -217,15 +217,16 @@ class DiffusionTrainer(nn.Module):
             if not self.is_state_based:
                 nimage = normalize_data(nimage, self.stats['nimage'])
                 
-            # print devices of nagent_pos and self.stats['nagent_pos']
             nagent_pos = normalize_data(nagent_pos, self.stats['nagent_pos'])
-            naction = self.get_all_actions_normalized(nimage, nagent_pos)
+            naction = self.get_all_actions_normalized(nimage, nagent_pos, sampler=sampler)
             naction_unnormalized = unnormalize_data(naction, stats=self.stats['actions']) # (B, pred_horizon, action_dim)
             assert naction_unnormalized.shape[0] == 1
             
             # append the next action_horizon actions to the list
             for i in range(self.action_horizon):
                 self.mpc_actions.append(naction_unnormalized[0][i])
+                
+        print("MPC Actions: ", len(self.mpc_actions))
         
         # get the first action in the list
         action = self.mpc_actions[0]

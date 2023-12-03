@@ -31,6 +31,9 @@ class ModelTester:
     ACTION_LIMIT_THRESHOLD = 0.6
     SMALL_NORM_CHANGE_BREAK_THRESHOLD = 1e-5
     NUM_STEPS = 500
+    ACTION_HORIOZON = 1
+    ACTION_SAMPLER = "ddim"
+    DDIM_STEPS = 20
 
     def __init__(self,
             model_name
@@ -38,6 +41,8 @@ class ModelTester:
         # Initialize the model
         stored_pt_file = torch.load("/home/ros_ws/logs/models/" + model_name + ".pt", map_location=torch.device('cpu'))
         self.train_params = {key: stored_pt_file[key] for key in stored_pt_file if key != "model_weights"}
+        self.train_params["action_horizon"] = self.ACTION_HORIOZON
+        self.train_params["num_ddim_iters"] = self.DDIM_STEPS
         if str(stored_pt_file["model_class"]).find("DiffusionTrainer") != -1:
             print("Loading Diffusion Model")
             self.model = DiffusionTrainer(
@@ -62,8 +67,12 @@ class ModelTester:
             self.train_params["obs_horizon"] = 1
         
         # Initialize sequence buffer with zeoros of size obs_horizon
-        self.seq_buffer = [np.zeros(self.train_params["ac_dim"])]*self.train_params["obs_horizon"]
+        self.seq_buffer = [np.zeros(self.train_params["obs_dim"])]*self.train_params["obs_horizon"]
         self.prev_joints = self.fa.get_joints()
+        
+        # test gripper
+        self.fa.close_gripper()
+        self.fa.open_gripper()
 
 
     def test_model(self, N_EVALS=20):
@@ -91,6 +100,7 @@ class ModelTester:
         """
         Run the control loop for one episode
         """
+        #TODO: vib2810 - Not a good way to get EXPERT_RECORD_FREQUENCY like this. Need to fix this.
         rate = rospy.Rate(EXPERT_RECORD_FREQUENCY)
 
         # To ensure skill doesn't end before completing trajectory, make the buffer time much longer than needed
@@ -126,7 +136,9 @@ class ModelTester:
             # )
             # self.pub.publish(ros_msg)
             next_pose_rigid = getRigidTransform(next_pose)
+            next_gripper = np.clip(next_gripper, FC.GRIPPER_WIDTH_MIN, FC.GRIPPER_WIDTH_MAX)
             self.fa.goto_pose(next_pose_rigid, duration=3)
+            self.fa.goto_gripper(next_gripper, block=False, speed = 0.2)
             
             # Break if counter exceeds num_steps
             counter += 1
@@ -160,7 +172,6 @@ class ModelTester:
         self.seq_buffer.pop(0)
         next_state = np.concatenate((curr_joints, [curr_gripper]))
         self.seq_buffer.append(next_state)
-        print(len(self.seq_buffer))
         
         # Append norm diff to prev_joint_norm_diffs 
         # norm_diff = np.linalg.norm(self.prev_joints - curr_joints)
