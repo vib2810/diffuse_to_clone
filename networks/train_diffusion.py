@@ -18,12 +18,15 @@ sys.path.append("/home/ros_ws/")
 from model_utils import seed_everything
 
 if __name__ == "__main__":
-
+    if len(sys.argv) != 2:
+        print("Usage: python3 train_diffusion.py dataset_name")
+        exit()
+    dataset_name = sys.argv[1]
     seed_everything(0)
 
     data_params = {
-        "dataset_path": '/home/ros_ws/dataset/data/toy_expt_first_try/train',
-        'eval_dataset_path': '/home/ros_ws/dataset/data/toy_expt_first_try/eval',
+        "dataset_path": f'/home/ros_ws/dataset/data/{dataset_name}/train',
+        'eval_dataset_path': f'/home/ros_ws/dataset/data/{dataset_name}/eval',
         "is_state_based": True,
         "pred_horizon": 16,  # must be a multiple of 2
         "obs_horizon": 2,
@@ -46,6 +49,7 @@ if __name__ == "__main__":
     }
 
     train_params["experiment_name"] = train_params['model_class'].__name__ + \
+                                    '_dataset_' + dataset_name + \
                                     '_lr_' + str(train_params['learning_rate']) + \
                                     '_bs_' + str(train_params['batch_size']) + \
                                     '_epochs_' + str(train_params['num_epochs']) + \
