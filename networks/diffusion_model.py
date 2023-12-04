@@ -4,6 +4,7 @@
 import sys
 sys.path.append("/home/ros_ws/")
 sys.path.append("/home/ros_ws/dataset")
+sys.path.append("/home/ros_ws/networks")
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -105,7 +106,8 @@ class DiffusionTrainer(nn.Module):
         # convert stats to tensors and put on device
         for key in self.stats.keys():
             for subkey in self.stats[key].keys():
-                self.stats[key][subkey] = torch.tensor(self.stats[key][subkey].astype(np.float32)).to(self.device)
+                if type(self.stats[key][subkey]) != torch.Tensor:
+                    self.stats[key][subkey] = torch.tensor(self.stats[key][subkey].astype(np.float32)).to(self.device)
 
         # Exponential Moving Average
         # accelerates training and improves stability
@@ -204,7 +206,7 @@ class DiffusionTrainer(nn.Module):
     def initialize_mpc_action(self):
         self.mpc_actions = []
 
-    def get_mpc_action(self, nimage: torch.Tensor, nagent_pos: torch.Tensor):
+    def get_mpc_action(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, sampler = "ddim"):
         """
         Assumes data is not normalized
         Meant to be called for live control of the robot
@@ -215,15 +217,16 @@ class DiffusionTrainer(nn.Module):
             if not self.is_state_based:
                 nimage = normalize_data(nimage, self.stats['nimage'])
                 
-            # print devices of nagent_pos and self.stats['nagent_pos']
             nagent_pos = normalize_data(nagent_pos, self.stats['nagent_pos'])
-            naction = self.get_all_actions_normalized(nimage, nagent_pos)
+            naction = self.get_all_actions_normalized(nimage, nagent_pos, sampler=sampler)
+            naction_unnormalized = naction
             naction_unnormalized = unnormalize_data(naction, stats=self.stats['actions']) # (B, pred_horizon, action_dim)
-            assert naction_unnormalized.shape[0] == 1
             
             # append the next action_horizon actions to the list
             for i in range(self.action_horizon):
                 self.mpc_actions.append(naction_unnormalized[0][i])
+                
+        print("MPC Actions: ", len(self.mpc_actions))
         
         # get the first action in the list
         action = self.mpc_actions[0]
@@ -232,6 +235,7 @@ class DiffusionTrainer(nn.Module):
             
         
     def train_model_step(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naction: torch.Tensor):
+        # print input dims
         if(not self.is_state_based):
             # encoder vision features
             image_features = self.nets['vision_encoder'](
@@ -290,7 +294,7 @@ class DiffusionTrainer(nn.Module):
     def run_after_epoch(self):
         self.ema.copy_to(self.inference_nets.parameters())
     
-    def eval_model(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naction: torch.Tensor):
+    def eval_model(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naction: torch.Tensor, return_actions=False):
         """
         Input: nimage, nagent_pos, naction in the dataset [normalized inputs]
         Returns the MSE loss between the normalized model actions and the normalized actions in the dataset
@@ -298,12 +302,19 @@ class DiffusionTrainer(nn.Module):
         model_actions_ddim = self.get_all_actions_normalized(nimage, nagent_pos, sampler="ddim")
         loss_ddim = self.loss_fn(model_actions_ddim, naction)
         loss = loss_ddim
+        if return_actions:
+            return loss.item(), model_actions_ddim
         return loss.item()
 
     def put_network_on_device(self):
         self.nets.to(self.device)
         self.inference_nets.to(self.device)
-
+        # put everything in stats on device
+        for key in self.stats.keys():
+            for subkey in self.stats[key].keys():
+                if type(self.stats[key][subkey]) == torch.Tensor:
+                    self.stats[key][subkey] = self.stats[key][subkey].to(self.device)
+                    
     def load_model_weights(self, model_weights):
         """
         Load the model weights

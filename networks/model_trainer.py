@@ -14,6 +14,7 @@ import torch.nn as nn
 from dataset.dataset import DiffusionDataset
 from diffusion_model import DiffusionTrainer
 from lstm_trainer import LSTMTrainer
+from bc_model import BCTrainer
 
 class ModelTrainer:
     def __init__(self, train_params, data_params, eval_every=100):
@@ -97,6 +98,12 @@ class ModelTrainer:
                 train_params=train_params,
                 device = self.device if torch.cuda.is_available() else "cpu"
             )
+        elif str(self.train_params["model_class"]).find("BCTrainer") != -1:
+            self.model = BCTrainer(
+                train_params=train_params,
+                device = self.device if torch.cuda.is_available() else "cpu"
+            )
+        
         self.best_eval_loss = 1e10
 
     def train_model(self, test_eval_split_ratio=0.1):
@@ -135,7 +142,8 @@ class ModelTrainer:
             
             # evaluate model on test data
             self.model.run_after_epoch()
-            eval_loss = self.evaluate_model(nimage, nagent_pos, naction)
+            eval_loss = self.evaluate_model()
+            print("Eval loss: {}".format(eval_loss))
             self.writer.add_scalar('Loss/eval', eval_loss, global_step)
             if eval_loss < self.best_eval_loss:
                 self.best_model_epoch = epoch_idx
@@ -155,7 +163,7 @@ class ModelTrainer:
             os.makedirs('/home/ros_ws/logs/models')
         torch.save(save_dict, '/home/ros_ws/logs/models/' + self.experiment_name_timed + '.pt')
 
-    def evaluate_model(self, nimage, nagent_pos, naction):
+    def evaluate_model(self):
         """
         Evaluates a given model on a given dataset
         Saves the model if the test loss is the best so far
