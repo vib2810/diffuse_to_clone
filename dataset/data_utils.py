@@ -160,11 +160,13 @@ def parse_actions(actions_msg:list, mode='xyz_quat'):
         quat_x, quat_y, quat_z, quat_w = pose.orientation.x, pose.orientation.y, \
                                         pose.orientation.z, pose.orientation.w
         if(mode=='xyz_quat'):
-            actions.append([x,y,z,quat_x, quat_y, quat_z, quat_w,gripper_width])
+            actions.append([x,y,z,quat_x, quat_y, quat_z, quat_w, gripper_width])
         elif(mode=='xyz_euler'):
             # convert to euler
             roll, pitch, yaw = tf.transformations.euler_from_quaternion([quat_x, quat_y, quat_z, quat_w])
-            actions.append([x,y,z,roll, pitch, yaw])
+            actions.append([x,y,z,roll, pitch, yaw, gripper_width])
+        elif(mode=='xyz'):
+            actions.append([x,y,z,gripper_width])
 
     actions = np.array(actions)
 
@@ -177,14 +179,16 @@ def parse_actions(actions_msg:list, mode='xyz_quat'):
 
     return actions
 
-def initialize_data():
+def initialize_data(is_state_based=True):
         
     data = OrderedDict()
-    data['images'] = []
+    if is_state_based is False:
+        data['images'] = []
+        
     data['nagent_pos'] = []
     data['actions'] = []
-    # data['tool_poses'] = []
     data['episode_ends'] = []
+    data['terminals'] = []
 
     return data
 
@@ -198,3 +202,80 @@ def print_data_dict_shapes(train_data: OrderedDict):
         if isinstance(data, np.ndarray):
             print(key, data.shape)
     print("--------------------------------------------------")
+
+
+def get_stacked_sample(observations, terminals, seq_len, start_idx):
+    """
+    Input Shapes
+    - Observation: (N, ob_dim)
+    - Terminals: (N, 1)
+    - Previous Observations: (N, ob_dim)
+    """
+    end_idx = start_idx + seq_len
+    # check if there is a terminal state between start and end
+    for idx in range(start_idx, end_idx - 1):
+        if terminals[idx]:
+            start_idx = idx + 1
+    missing_context = seq_len - (end_idx - start_idx)
+    
+    # if zero padding is needed for missing context
+    if start_idx < 0 or missing_context > 0:
+        frames = [np.zeros_like(observations[0])] * missing_context
+        for idx in range(start_idx, end_idx):
+            frames.append(observations[idx])
+        frames = np.stack(frames)
+        return frames
+    else:
+        return observations[start_idx:end_idx] # shape (seq_len, ob_dim)
+
+def get_stacked_action(actions, terminals, seq_len, start_idx):
+    """
+    get_stacked_samples cuts from the start_idx
+    This function pads the end with the last action
+    """
+    end_idx = start_idx + seq_len
+    # check if there is a terminal state between start and end
+    for idx in range(start_idx, end_idx - 1):
+        if terminals[idx]:
+            end_idx = idx + 1
+            break
+    missing_context = seq_len - (end_idx - start_idx)
+    
+    # pad the end with the last action
+    if missing_context > 0:
+        frames = []
+        for idx in range(start_idx, end_idx):
+            frames.append(actions[idx])
+        frames += [actions[end_idx - 1]] * missing_context
+        frames = np.stack(frames)
+        return frames
+    else:
+        return actions[start_idx:end_idx] # shape (seq_len, ob_dim)
+
+def get_stacked_samples(observations, actions, terminals, ob_seq_len, ac_seq_len,
+                        batch_size, start_idxs=None):
+    """
+    Observations: (N, ob_dim)
+    Actions: (N, ac_dim)
+    Terminals: (N, 1)
+    Returns a batch of stacked samples
+        - Observations: (batch_size, ob_seq_len, ob_dim)
+        - Actions: (batch_size, ac_seq_len, ac_dim)
+    Padding:
+        - Observations: zero padding at the start
+        - Actions: last action padding at the end
+    """
+    if start_idxs is None:
+        start_idxs = np.random.randint(0, len(observations) - ob_seq_len - ac_seq_len, batch_size)
+    
+    # print("start_idxs", start_idxs)
+    
+    stacked_observations = []
+    stacked_actions = []
+    for start_idx in start_idxs:
+        obs = get_stacked_sample(observations, terminals, ob_seq_len, start_idx)
+        ac = get_stacked_action(actions, terminals, ac_seq_len, start_idx + ob_seq_len - 1)
+        stacked_observations.append(obs)
+        stacked_actions.append(ac)
+        
+    return np.stack(stacked_observations), np.stack(stacked_actions) # (batch_size, seq_len, ob_dim), (batch_size, ac_seq_len, ac_dim)

@@ -1,4 +1,4 @@
-# Author: Abhinav Gupta ag6@andrew.cmu.edu
+# Author: Vibhakar Mohta vib2810@gmail.com
 #!/usr/bin/env python3
 
 import torch
@@ -11,11 +11,12 @@ import numpy as np
 import sys
 import os
 import time
-from diffusion_model import DiffusionTrainer
-from model_trainer import ModelTrainer   
+
+from bc_model import BCTrainer
 import sys
 sys.path.append("/home/ros_ws/")
-from model_utils import seed_everything
+from networks.model_utils import seed_everything
+from networks.model_trainer import ModelTrainer
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
@@ -23,28 +24,30 @@ if __name__ == "__main__":
         exit()
     dataset_name = sys.argv[1]
     seed_everything(0)
-
+    
     data_params = {
         "dataset_path": f'/home/ros_ws/dataset/data/{dataset_name}/train',
         'eval_dataset_path': f'/home/ros_ws/dataset/data/{dataset_name}/eval',
         "is_state_based": True,
-        "pred_horizon": 16,  # must be a multiple of 2
+        "pred_horizon": 1,  # for BC model
         "obs_horizon": 2,
-        "action_horizon": 8, # MPC number of actions to take
+        "action_horizon": 1, # for BC model
     }
-
+    
     # Make the train params
     train_params = {
         "batch_size": 256,
         "eval_batch_size": 256,
+        "learning_rate": 1e-4,
+        "n_layers": 4,
+        "hidden_size": 128,
         "num_workers": 4,
         "num_epochs": 400,
-        "learning_rate": 1e-4,
         "loss": nn.functional.mse_loss,
+        "activation": nn.ReLU(),
+        "output_activation": nn.Identity(),
         'use_stats': False,
-        'model_class': DiffusionTrainer,
-        'num_diffusion_iters': 100,
-        'num_ddim_iters': 10, # for DDIM sampling
+        'model_class': BCTrainer,
         'device': 'cuda:0',
     }
 
