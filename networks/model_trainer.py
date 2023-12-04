@@ -142,7 +142,7 @@ class ModelTrainer:
             
             # evaluate model on test data
             self.model.run_after_epoch()
-            eval_loss = self.evaluate_model(nimage, nagent_pos, naction)
+            eval_loss = self.evaluate_model()
             print("Eval loss: {}".format(eval_loss))
             self.writer.add_scalar('Loss/eval', eval_loss, global_step)
             if eval_loss < self.best_eval_loss:
@@ -163,7 +163,7 @@ class ModelTrainer:
             os.makedirs('/home/ros_ws/logs/models')
         torch.save(save_dict, '/home/ros_ws/logs/models/' + self.experiment_name_timed + '.pt')
 
-    def evaluate_model(self, nimage, nagent_pos, naction):
+    def evaluate_model(self):
         """
         Evaluates a given model on a given dataset
         Saves the model if the test loss is the best so far

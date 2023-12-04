@@ -107,16 +107,17 @@ class BCTrainer(nn.Module):
         """
         nagent_pos = normalize_data(nagent_pos, self.stats['nagent_pos'])
         naction = self.get_all_actions_normalized(nimage, nagent_pos)
+        print("naction: ", naction)
         naction_unnormalized = unnormalize_data(naction, stats=self.stats['actions']) # (B, action_horizon * action_dim) where action_horizon = 1
         assert naction_unnormalized.shape[0] == 1
         return naction_unnormalized.squeeze(0).cpu().numpy()            
         
     def train_model_step(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naction: torch.Tensor):
         self.optimizer.zero_grad()
+        obs_cond = nagent_pos.flatten(start_dim=1) # (B, obs_horizon * obs_dim)
+        model_actions = self.mean_net(obs_cond)
 
-        model_actions = self.mean_net(nagent_pos)
-
-        loss = self.loss_fn(model_actions, naction)
+        loss = self.loss_fn(model_actions, naction.flatten(start_dim=1))
         loss.backward()
         self.optimizer.step()
 
@@ -125,13 +126,15 @@ class BCTrainer(nn.Module):
     def run_after_epoch(self):
         pass
     
-    def eval_model(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naction: torch.Tensor):
+    def eval_model(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naction: torch.Tensor, return_actions=False):
         """
         Input: nimage, nagent_pos, naction in the dataset [normalized inputs]
         Returns the MSE loss between the normalized model actions and the normalized actions in the dataset
         """
         model_actions = self.get_all_actions_normalized(nimage, nagent_pos)
-        loss = self.loss_fn(model_actions, naction)
+        loss = self.loss_fn(model_actions, naction.flatten(start_dim=1))
+        if return_actions:
+            return loss.item(), model_actions
         return loss.item()
  
     def load_model_weights(self, model_weights):

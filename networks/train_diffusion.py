@@ -38,7 +38,7 @@ if __name__ == "__main__":
         "batch_size": 256,
         "eval_batch_size": 256,
         "num_workers": 4,
-        "num_epochs": 150,
+        "num_epochs": 400,
         "learning_rate": 1e-4,
         "loss": nn.functional.mse_loss,
         'use_stats': False,

@@ -9,6 +9,7 @@ import torch
 sys.path.append("/home/ros_ws/src/il_packages/manipulation/src")
 sys.path.append("/home/ros_ws/")
 from networks.diffusion_model import DiffusionTrainer
+from networks.bc_model import BCTrainer
 from src.git_packages.frankapy.frankapy import FrankaArm, SensorDataMessageType
 from src.git_packages.frankapy.frankapy import FrankaConstants as FC
 from src.git_packages.frankapy.frankapy.proto_utils import sensor_proto2ros_msg, make_sensor_group_msg
@@ -50,6 +51,14 @@ class ModelTester:
                 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
             )
             self.model.initialize_mpc_action()
+        if str(stored_pt_file["model_class"]).find("BCTrainer") != -1:
+            print("Loading BC Model")
+            self.model = BCTrainer(
+                train_params=self.train_params,
+                device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+            )
+            self.model.initialize_mpc_action()
+            
         self.model.load_model_weights(stored_pt_file["model_weights"])
 
         # print model hparams (except model_weights)
@@ -135,6 +144,7 @@ class ModelTester:
             #         fb_ctrlr_proto, SensorDataMessageType.CARTESIAN_IMPEDANCE)
             # )
             # self.pub.publish(ros_msg)
+            next_pose.position.z = max(next_pose.position.z, 0.0)
             next_pose_rigid = getRigidTransform(next_pose)
             next_gripper = np.clip(next_gripper, FC.GRIPPER_WIDTH_MIN, FC.GRIPPER_WIDTH_MAX)
             self.fa.goto_pose(next_pose_rigid, duration=3)
@@ -182,7 +192,7 @@ class ModelTester:
         
         # Get next action
         stacked_input = np.stack(self.seq_buffer, axis=0)
-        print(f"tp: {stacked_input.shape}")
+        print(f"stacked input: {stacked_input}")
         nagent_pos = torch.from_numpy(stacked_input).float().unsqueeze(0).to(self.model.device)
         # print obs_tensor.shape
         print(f"nagent_pos: {nagent_pos.shape}")

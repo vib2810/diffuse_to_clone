@@ -219,8 +219,8 @@ class DiffusionTrainer(nn.Module):
                 
             nagent_pos = normalize_data(nagent_pos, self.stats['nagent_pos'])
             naction = self.get_all_actions_normalized(nimage, nagent_pos, sampler=sampler)
+            naction_unnormalized = naction
             naction_unnormalized = unnormalize_data(naction, stats=self.stats['actions']) # (B, pred_horizon, action_dim)
-            assert naction_unnormalized.shape[0] == 1
             
             # append the next action_horizon actions to the list
             for i in range(self.action_horizon):
@@ -235,6 +235,7 @@ class DiffusionTrainer(nn.Module):
             
         
     def train_model_step(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naction: torch.Tensor):
+        # print input dims
         if(not self.is_state_based):
             # encoder vision features
             image_features = self.nets['vision_encoder'](
@@ -293,7 +294,7 @@ class DiffusionTrainer(nn.Module):
     def run_after_epoch(self):
         self.ema.copy_to(self.inference_nets.parameters())
     
-    def eval_model(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naction: torch.Tensor):
+    def eval_model(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naction: torch.Tensor, return_actions=False):
         """
         Input: nimage, nagent_pos, naction in the dataset [normalized inputs]
         Returns the MSE loss between the normalized model actions and the normalized actions in the dataset
@@ -301,6 +302,8 @@ class DiffusionTrainer(nn.Module):
         model_actions_ddim = self.get_all_actions_normalized(nimage, nagent_pos, sampler="ddim")
         loss_ddim = self.loss_fn(model_actions_ddim, naction)
         loss = loss_ddim
+        if return_actions:
+            return loss.item(), model_actions_ddim
         return loss.item()
 
     def put_network_on_device(self):
