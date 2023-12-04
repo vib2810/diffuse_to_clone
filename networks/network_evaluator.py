@@ -89,6 +89,8 @@ class ModelEvaluator:
         total_loss = 0
         max_loss = 0
         # iterate over all the test data
+        counter = 0
+
         for nbatch in self.eval_dataloader:
             # data normalized in dataset
             # device transfer
@@ -103,6 +105,11 @@ class ModelEvaluator:
             B = nagent_pos.shape[0]
 
             loss, model_actions = self.model.eval_model(nimage, nagent_pos, naction, return_actions=True)
+            # if the first nagent_pos stacked input is all zeros, then the output is also all zeros
+            for bidx in range (B):
+                if torch.sum(nagent_pos[bidx, 0]) == 0:
+                    counter += 1
+            print("Num data points with first seq all zeros: ", counter)
             # print("Input to eval: nagent_pos", nagent_pos)
             # print("Input to eval: naction", naction)
             # print("Output of eval: model_actions", model_actions)

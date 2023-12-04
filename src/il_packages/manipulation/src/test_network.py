@@ -34,7 +34,7 @@ class ModelTester:
     NUM_STEPS = 500
     ACTION_HORIOZON = 1
     ACTION_SAMPLER = "ddim"
-    DDIM_STEPS = 20
+    DDIM_STEPS = 10
 
     def __init__(self,
             model_name
@@ -76,7 +76,8 @@ class ModelTester:
             self.train_params["obs_horizon"] = 1
         
         # Initialize sequence buffer with zeoros of size obs_horizon
-        self.seq_buffer = [np.zeros(self.train_params["obs_dim"])]*self.train_params["obs_horizon"]
+        # self.seq_buffer = [np.zeros(self.train_params["obs_dim"])]*self.train_params["obs_horizon"]
+        self.seq_buffer = None
         self.prev_joints = self.fa.get_joints()
         
         # test gripper
@@ -113,8 +114,8 @@ class ModelTester:
         rate = rospy.Rate(EXPERT_RECORD_FREQUENCY)
 
         # To ensure skill doesn't end before completing trajectory, make the buffer time much longer than needed
-        # self.fa.goto_pose(self.fa.get_pose(), duration=120, dynamic=True, buffer_time=10,
-        #         cartesian_impedances=FC.DEFAULT_TRANSLATIONAL_STIFFNESSES[:3] + FC.DEFAULT_ROTATIONAL_STIFFNESSES)
+        self.fa.goto_pose(self.fa.get_pose(), duration=120, dynamic=True, buffer_time=10,
+                cartesian_impedances=FC.DEFAULT_TRANSLATIONAL_STIFFNESSES[:3] + FC.DEFAULT_ROTATIONAL_STIFFNESSES)
         
         # Initialize variables to store data
         init_time = rospy.Time.now().to_time()
@@ -127,27 +128,30 @@ class ModelTester:
             
             # Publish the data
             timestamp = rospy.Time.now().to_time() - init_time
-            # traj_gen_proto_msg = PosePositionSensorMessage(
-            #     id=counter, timestamp=timestamp, 
-            #     position=[next_pose.position.x, next_pose.position.y, next_pose.position.z],
-            #     quaternion=[next_pose.orientation.w, next_pose.orientation.x, next_pose.orientation.y, next_pose.orientation.z]
-            # )
-            # fb_ctrlr_proto = CartesianImpedanceSensorMessage(
-            #     id=counter, timestamp=timestamp,
-            #     translational_stiffnesses=FC.DEFAULT_TRANSLATIONAL_STIFFNESSES[:3],
-            #     rotational_stiffnesses=FC.DEFAULT_ROTATIONAL_STIFFNESSES
-            # )
-            # ros_msg = make_sensor_group_msg(
-            #     trajectory_generator_sensor_msg=sensor_proto2ros_msg(
-            #         traj_gen_proto_msg, SensorDataMessageType.POSE_POSITION),
-            #     feedback_controller_sensor_msg=sensor_proto2ros_msg(
-            #         fb_ctrlr_proto, SensorDataMessageType.CARTESIAN_IMPEDANCE)
-            # )
-            # self.pub.publish(ros_msg)
-            next_pose.position.z = max(next_pose.position.z, 0.0)
-            next_pose_rigid = getRigidTransform(next_pose)
+            traj_gen_proto_msg = PosePositionSensorMessage(
+                id=counter, timestamp=timestamp, 
+                position=[next_pose.position.x, next_pose.position.y, next_pose.position.z],
+                quaternion=[next_pose.orientation.w, next_pose.orientation.x, next_pose.orientation.y, next_pose.orientation.z]
+            )
+            fb_ctrlr_proto = CartesianImpedanceSensorMessage(
+                id=counter, timestamp=timestamp,
+                translational_stiffnesses=FC.DEFAULT_TRANSLATIONAL_STIFFNESSES[:3],
+                rotational_stiffnesses=FC.DEFAULT_ROTATIONAL_STIFFNESSES
+            )
+            ros_msg = make_sensor_group_msg(
+                trajectory_generator_sensor_msg=sensor_proto2ros_msg(
+                    traj_gen_proto_msg, SensorDataMessageType.POSE_POSITION),
+                feedback_controller_sensor_msg=sensor_proto2ros_msg(
+                    fb_ctrlr_proto, SensorDataMessageType.CARTESIAN_IMPEDANCE)
+            )
+            
+            self.pub.publish(ros_msg)
+            
+            # next_pose.position.z = max(next_pose.position.z, 0.0)
+            # next_pose_rigid = getRigidTransform(next_pose)
+            # self.fa.goto_pose(next_pose_rigid, duration=1)
+            
             next_gripper = np.clip(next_gripper, FC.GRIPPER_WIDTH_MIN, FC.GRIPPER_WIDTH_MAX)
-            self.fa.goto_pose(next_pose_rigid, duration=3)
             self.fa.goto_gripper(next_gripper, block=False, speed = 0.2)
             
             # Break if counter exceeds num_steps
@@ -179,8 +183,12 @@ class ModelTester:
         curr_gripper = self.fa.get_gripper_width() #scalar
 
         # Append current joints to sequence buffer
-        self.seq_buffer.pop(0)
+        # if seq buffer is not initialized, initialize it and tile next_state
         next_state = np.concatenate((curr_joints, [curr_gripper]))
+        if self.seq_buffer is None:
+            self.seq_buffer = [next_state]*self.train_params["obs_horizon"]
+
+        self.seq_buffer.pop(0)
         self.seq_buffer.append(next_state)
         
         # Append norm diff to prev_joint_norm_diffs 
