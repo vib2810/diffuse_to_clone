@@ -30,3 +30,7 @@ Diffusion Models for Imitation Learning
       ```
       roslaunch manipulation demo_moveit.launch 
       ```
+3. Collect data with vision:
+      ```
+      roslaunch manipulation data_collect_vision.launch
+      ```
