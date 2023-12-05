@@ -39,7 +39,7 @@ if __name__ == "__main__":
         "eval_batch_size": 256,
         "num_workers": 4,
         "num_epochs": 400,
-        "learning_rate": 1e-4,
+        "learning_rate": 5e-4,
         "loss": nn.functional.mse_loss,
         'use_stats': False,
         'model_class': DiffusionTrainer,

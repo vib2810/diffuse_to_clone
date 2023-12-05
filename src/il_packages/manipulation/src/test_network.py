@@ -18,13 +18,11 @@ from franka_interface_msgs.msg import SensorDataGroup
 from src.il_packages.manipulation.src.moveit_class import get_pose_norm, get_posestamped, EXPERT_RECORD_FREQUENCY
 from src.il_packages.manipulation.src.data_class import getRigidTransform
 
-
 sys.path.append("/home/ros_ws/src/git_packages/frankapy")
 from frankapy.proto import PosePositionSensorMessage, CartesianImpedanceSensorMessage
 
 
 sys.path.append("/home/ros_ws/networks") # for torch.load to work
-
 
 class ModelTester:
     # Constants
@@ -32,7 +30,7 @@ class ModelTester:
     ACTION_LIMIT_THRESHOLD = 0.6
     SMALL_NORM_CHANGE_BREAK_THRESHOLD = 1e-5
     NUM_STEPS = 500
-    ACTION_HORIOZON = 1
+    ACTION_HORIOZON = 8
     ACTION_SAMPLER = "ddim"
     DDIM_STEPS = 10
 
