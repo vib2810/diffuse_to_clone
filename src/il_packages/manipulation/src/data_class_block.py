@@ -530,7 +530,7 @@ if __name__ == "__main__":
 
     # Collect trajectories
     expt_data_dict = {}
-    expt_data_dict["experiment_name"] = "toy_expt_"+ experiment_name
+    expt_data_dict["experiment_name"] = experiment_name
     expt_data_dict["n_trajectories"] = num_trajs_to_collect
     expt_data_dict["eval_mode"] = eval_mode
     expt_data_dict["pick_pose"] = get_posestamped(np.array([0.47739821, -0.2, Z_PICK]),
