@@ -128,7 +128,7 @@ def parse_states(observations: list, mode='concat'):
     
     """
 
-    observations = np.array(observations)
+    observations = np.array(observations, dtype=object)
     robot_joint_values = np.array([np.array(x[0]) for x in observations])
     gripper_width = observations[:,1]
     gripper_width = np.expand_dims(gripper_width,axis=1)
@@ -183,11 +183,10 @@ def initialize_data(is_state_based=True):
         
     data = OrderedDict()
     if is_state_based is False:
-        data['images'] = []
+        data["image_data_info"] = []
         
     data['nagent_pos'] = []
     data['actions'] = []
-    data['episode_ends'] = []
     data['terminals'] = []
 
     return data
@@ -252,11 +251,14 @@ def get_stacked_action(actions, terminals, seq_len, start_idx):
     else:
         return actions[start_idx:end_idx] # shape (seq_len, ob_dim)
 
-def get_stacked_samples(observations, actions, terminals, ob_seq_len, ac_seq_len,
+def get_stacked_samples(observations, actions, 
+                        image_data_info,
+                        terminals, ob_seq_len, ac_seq_len,
                         batch_size, start_idxs=None):
     """
     Observations: (N, ob_dim)
     Actions: (N, ac_dim)
+    Image_data_info: (N, 2)
     Terminals: (N, 1)
     Returns a batch of stacked samples
         - Observations: (batch_size, ob_seq_len, ob_dim)
@@ -272,10 +274,13 @@ def get_stacked_samples(observations, actions, terminals, ob_seq_len, ac_seq_len
     
     stacked_observations = []
     stacked_actions = []
+    stacked_image_data_info = []
     for start_idx in start_idxs:
         obs = get_stacked_sample(observations, terminals, ob_seq_len, start_idx)
         ac = get_stacked_action(actions, terminals, ac_seq_len, start_idx + ob_seq_len - 1)
+        im = get_stacked_sample(image_data_info, terminals, ob_seq_len, start_idx)
         stacked_observations.append(obs)
         stacked_actions.append(ac)
-        
-    return np.stack(stacked_observations), np.stack(stacked_actions) # (batch_size, seq_len, ob_dim), (batch_size, ac_seq_len, ac_dim)
+        stacked_image_data_info.append(im)
+    # (batch_size, seq_len, ob_dim), (batch_size, ac_seq_len, ac_dim), (batch_size, seq_len, 2)
+    return np.stack(stacked_observations), np.stack(stacked_actions), np.stack(stacked_image_data_info)

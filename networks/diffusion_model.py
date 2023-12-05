@@ -52,7 +52,6 @@ class DiffusionTrainer(nn.Module):
         self.is_state_based = train_params["is_state_based"]
         self.device = device
         
-
         # create network object
         self.noise_pred_net = ConditionalUnet1D(
             input_dim=self.action_dim,
@@ -61,7 +60,7 @@ class DiffusionTrainer(nn.Module):
         
         if(not self.is_state_based):
             # Get vision encoder
-            self.vision_encoder = get_vision_encoder('resnet18')
+            self.vision_encoder = get_vision_encoder('resnet18', weights='IMAGENET1K_V2')
 
             # the final arch has 2 parts
             self.nets = nn.ModuleDict({
@@ -215,7 +214,7 @@ class DiffusionTrainer(nn.Module):
         # Compute next pred_horizon actions and store the next action_horizon actions in a list
         if len(self.mpc_actions) == 0:
             if not self.is_state_based:
-                nimage = normalize_data(nimage, self.stats['nimage'])
+                nimage = normalize_data(nimage, self.stats['nimage']) #todo CHANGE THIS
                 
             nagent_pos = normalize_data(nagent_pos, self.stats['nagent_pos'])
             naction = self.get_all_actions_normalized(nimage, nagent_pos, sampler=sampler)

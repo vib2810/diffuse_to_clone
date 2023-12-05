@@ -40,15 +40,20 @@ class ModelTrainer:
             pred_horizon=data_params['pred_horizon'],
             obs_horizon=data_params['obs_horizon'],
             action_horizon=data_params['action_horizon'],
+            is_state_based=self.is_state_based
         )
+        print("################ Train Dataset loaded #################")
+
         
         eval_dataset = DiffusionDataset(
             dataset_path=data_params['eval_dataset_path'],
             pred_horizon=data_params['pred_horizon'],
             obs_horizon=data_params['obs_horizon'],
             action_horizon=data_params['action_horizon'],
+            is_state_based=self.is_state_based
         )
-
+        print("################ Eval Dataset loaded #################")
+        
         ## Store stats
         self.stats = dataset.stats
 
@@ -78,7 +83,8 @@ class ModelTrainer:
         eval_dataset.print_size("eval")
 
         # Add info to train_params
-        self.train_params["obs_dim"] = dataset.obs_dim
+        image_dim = 512 if not self.is_state_based else 0
+        self.train_params["obs_dim"] = dataset.state_dim + image_dim
         self.train_params["ac_dim"] = dataset.action_dim
         self.train_params["num_traj"] = len(self.dataloader)
         self.train_params["obs_horizon"] = data_params["obs_horizon"]
@@ -137,7 +143,7 @@ class ModelTrainer:
                 self.writer.add_scalar('Loss/train', loss_cpu, global_step)
                 global_step += 1
                 
-                if(not global_step%50):
+                if(not global_step%10):
                     print("Epoch: {}, Step: {}, Loss: {}".format(epoch_idx, global_step, loss_cpu))
             
             # evaluate model on test data
