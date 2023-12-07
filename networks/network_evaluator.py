@@ -9,7 +9,7 @@ import torch
 sys.path.append("/home/ros_ws/src/il_packages/manipulation/src")
 sys.path.append("/home/ros_ws/")
 from networks.diffusion_model import DiffusionTrainer
-from networks.bc_model import BCTrainer
+from networks.fc_model import FCTrainer
 from dataset.dataset import DiffusionDataset
 from diffusion_model import DiffusionTrainer
 from networks.model_utils import normalize_data, unnormalize_data
@@ -35,9 +35,9 @@ class ModelEvaluator:
                 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
             )
             self.model.initialize_mpc_action()
-        if str(stored_pt_file["model_class"]).find("BCTrainer") != -1:
-            print("Loading BC Model")
-            self.model = BCTrainer(
+        if str(stored_pt_file["model_class"]).find("FCTrainer") != -1:
+            print("Loading FC Model")
+            self.model = FCTrainer(
                 train_params=self.train_params,
                 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
             )

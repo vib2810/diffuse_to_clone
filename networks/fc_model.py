@@ -9,8 +9,9 @@ import torch
 import torch.nn as nn
 import numpy as np
 from networks.model_utils import normalize_data, unnormalize_data
+from diffusion_model_vision import *
 
-class BCTrainer(nn.Module):
+class FCTrainer(nn.Module):
     def __init__(self,
                 train_params,
                 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu"), 
@@ -32,9 +33,12 @@ class BCTrainer(nn.Module):
         self.is_state_based = train_params["is_state_based"]
         self.device = device
         
-        assert self.is_state_based == True, "BC Model only works for state based models"
-        # assert self.pred_horizon == 1, "BC Model only works for pred_horizon = 1"
-        # assert self.action_horizon == 1, "BC Model only works for action_horizon = 1"
+        assert self.pred_horizon == 1, "FC Model only works for pred_horizon = 1"
+        assert self.action_horizon == 1, "FC Model only works for action_horizon = 1"
+        
+        if(not self.is_state_based):
+            # Get vision encoder (obs dim already includes vision features added in the dataloader)
+            self.vision_encoder = get_vision_encoder('resnet18', weights='IMAGENET1K_V2')
         
         # create network object
         self.mean_net = self.make_network(
@@ -58,12 +62,24 @@ class BCTrainer(nn.Module):
         # loss fn
         self.loss_fn = train_params["loss"]
         
-        self.optimizer = torch.optim.Adam(
-            params=self.mean_net.parameters(),
-            lr=self.lr)
+        if self.is_state_based:
+            self.optimizer = torch.optim.Adam(
+                params=self.mean_net.parameters(),
+                lr=self.lr)
+        else:
+            self.optimizer = torch.optim.Adam(
+                params=itertools.chain(
+                    self.mean_net.parameters(),
+                    self.vision_encoder.parameters()
+                ),
+                lr=self.lr)
     
     def put_network_on_device(self):
         self.mean_net.to(self.device)
+        
+        if not self.is_state_based:
+            self.vision_encoder.to(self.device)
+        
         if self.stats is not None:
             for key in self.stats:
                 self.stats[key]['min'] = self.stats[key]['min'].to(self.device)
@@ -84,6 +100,8 @@ class BCTrainer(nn.Module):
     def eval(self):
         # self.nets.eval()
         self.mean_net.eval()
+        if not self.is_state_based:
+            self.vision_encoder.eval()
         
     def get_all_actions_normalized(self, nimage: torch.Tensor, nagent_pos: torch.Tensor):
         """
@@ -92,8 +110,19 @@ class BCTrainer(nn.Module):
         Returns normalized actions of shape (B, pred_horizon, action_dim)
         """
         with torch.no_grad():
-            obs_features = torch.cat([nagent_pos], dim=-1)
-            obs_cond = obs_features.flatten(start_dim=1) # (B, obs_horizon * obs_dim)            
+            if(not self.is_state_based):
+                # encoder vision features
+                image_features = self.vision_encoder(nimage.flatten(end_dim=1))
+                image_features = image_features.reshape(*nimage.shape[:2],-1) # (B,obs_horizon,D)
+
+                # concatenate vision feature and low-dim obs
+                obs_features = torch.cat([image_features, nagent_pos], dim=-1)
+                obs_cond = obs_features.flatten(start_dim=1) # (B, obs_horizon * obs_dim)
+
+            else:
+                obs_features = torch.cat([nagent_pos], dim=-1)
+                obs_cond = obs_features.flatten(start_dim=1) # (B, obs_horizon * obs_dim)
+        
             naction = self.mean_net(obs_cond)
             return naction
     
@@ -114,7 +143,20 @@ class BCTrainer(nn.Module):
         
     def train_model_step(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naction: torch.Tensor):
         self.optimizer.zero_grad()
-        obs_cond = nagent_pos.flatten(start_dim=1) # (B, obs_horizon * obs_dim)
+        
+        if(not self.is_state_based):
+            # encoder vision features
+            image_features = self.vision_encoder(nimage.flatten(end_dim=1))
+            image_features = image_features.reshape(*nimage.shape[:2],-1) # (B,obs_horizon,D)
+
+            # concatenate vision feature and low-dim obs
+            obs_features = torch.cat([image_features, nagent_pos], dim=-1)
+            obs_cond = obs_features.flatten(start_dim=1) # (B, obs_horizon * obs_dim)
+
+        else:
+            obs_features = torch.cat([nagent_pos], dim=-1)
+            obs_cond = obs_features.flatten(start_dim=1) # (B, obs_horizon * obs_dim)
+        
         model_actions = self.mean_net(obs_cond)
 
         loss = self.loss_fn(model_actions, naction.flatten(start_dim=1))

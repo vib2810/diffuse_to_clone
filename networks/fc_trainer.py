@@ -12,7 +12,7 @@ import sys
 import os
 import time
 
-from bc_model import BCTrainer
+from networks.fc_model import FCTrainer
 import sys
 sys.path.append("/home/ros_ws/")
 from networks.model_utils import seed_everything
@@ -29,9 +29,9 @@ if __name__ == "__main__":
         "dataset_path": f'/home/ros_ws/dataset/data/{dataset_name}/train',
         'eval_dataset_path': f'/home/ros_ws/dataset/data/{dataset_name}/eval',
         "is_state_based": True,
-        "pred_horizon": 1,  # for BC model
+        "pred_horizon": 1,  # for FC model
         "obs_horizon": 2,
-        "action_horizon": 1, # for BC model
+        "action_horizon": 1, # for FC model
     }
     
     # Make the train params
@@ -47,7 +47,7 @@ if __name__ == "__main__":
         "activation": nn.ReLU(),
         "output_activation": nn.Identity(),
         'use_stats': False,
-        'model_class': BCTrainer,
+        'model_class': FCTrainer,
         'device': 'cuda:0',
     }
 

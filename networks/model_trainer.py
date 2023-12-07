@@ -14,7 +14,7 @@ import torch.nn as nn
 from dataset.dataset import DiffusionDataset
 from diffusion_model import DiffusionTrainer
 from lstm_trainer import LSTMTrainer
-from bc_model import BCTrainer
+from networks.fc_model import FCTrainer
 
 class ModelTrainer:
     def __init__(self, train_params, data_params, eval_every=100):
@@ -104,8 +104,8 @@ class ModelTrainer:
                 train_params=train_params,
                 device = self.device if torch.cuda.is_available() else "cpu"
             )
-        elif str(self.train_params["model_class"]).find("BCTrainer") != -1:
-            self.model = BCTrainer(
+        elif str(self.train_params["model_class"]).find("FCTrainer") != -1:
+            self.model = FCTrainer(
                 train_params=train_params,
                 device = self.device if torch.cuda.is_available() else "cpu"
             )
