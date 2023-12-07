@@ -33,7 +33,7 @@ class ModelTester:
     ACTION_LIMIT_THRESHOLD = 0.6
     SMALL_NORM_CHANGE_BREAK_THRESHOLD = 1e-5
     NUM_STEPS = 500
-    ACTION_HORIOZON = 8
+    ACTION_HORIZON_DIFFUSION = 8
     ACTION_SAMPLER = "ddim"
     DDIM_STEPS = 10
     USE_GOTO_POSE = True
@@ -44,9 +44,9 @@ class ModelTester:
         # Initialize the model
         stored_pt_file = torch.load("/home/ros_ws/logs/models/" + model_name + ".pt", map_location=torch.device('cpu'))
         self.train_params = {key: stored_pt_file[key] for key in stored_pt_file if key != "model_weights"}
-        self.train_params["action_horizon"] = self.ACTION_HORIOZON
-        self.train_params["num_ddim_iters"] = self.DDIM_STEPS
         if str(stored_pt_file["model_class"]).find("DiffusionTrainer") != -1:
+            self.train_params["action_horizon"] = self.ACTION_HORIZON_DIFFUSION
+            self.train_params["num_ddim_iters"] = self.DDIM_STEPS
             print("Loading Diffusion Model")
             self.model = DiffusionTrainer(
                 train_params=self.train_params,
@@ -242,7 +242,8 @@ class ModelTester:
                 self.img_buffer.append(self.curr_image)
                 
             else:
-                rospy.logwarn("Image buffer is empty. Using zeros")
+                rospy.logerr("Image buffer is empty. Using zeros")
+                sys.exit()
 
             stacked_images = np.stack(self.img_buffer, axis=0)
             print(f"stacked images input: {stacked_images}")

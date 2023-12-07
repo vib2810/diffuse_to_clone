@@ -79,31 +79,16 @@ def get_data_stats(data):
     }
     return stats
 
-def normalize_data(data, stats, mode='minmax'):
-
-    if mode=='minmax':
-        # nomalize to [0,1]
-        ndata = (data - stats['min']) / (stats['max'] - stats['min'])
-        # normalize to [-1, 1]
-        ndata = ndata * 2 - 1
-
-    elif mode=='gaussian': 
-        # normalize to gaussian
-        ndata = (data - stats['mean']) / stats['std']
-
-    else:
-        raise ValueError("mode should be either minmax or gaussian")
-
+def normalize_data(data, stats):
+    # nomalize to [0,1]
+    ndata = (data - stats['min']) / (stats['max'] - stats['min'])
+    # normalize to [-1, 1]
+    ndata = ndata * 2 - 1
     return ndata
 
-def unnormalize_data(ndata, stats,mode='minmax'):
-    if mode=='minmax':
-        ndata = (ndata + 1) / 2
-        data = ndata * (stats['max'] - stats['min']) + stats['min']
-    elif mode=='gaussian':
-        data = ndata * stats['std'] + stats['mean']
-    else:
-        raise ValueError("mode should be either minmax or gaussian")
+def unnormalize_data(ndata, stats):
+    ndata = (ndata + 1) / 2
+    data = ndata * (stats['max'] - stats['min']) + stats['min']
     return data
 
 def parse_poses(tool_poses_msg:list, mode='xyz_quat'):
