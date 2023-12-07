@@ -41,7 +41,6 @@ if __name__ == "__main__":
         "num_epochs": 400,
         "learning_rate": 1e-4,
         "loss": nn.functional.mse_loss,
-        'use_stats': False,
         'model_class': DiffusionTrainer,
         'num_diffusion_iters': 100,
         'num_ddim_iters': 10, # for DDIM sampling

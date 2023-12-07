@@ -91,17 +91,14 @@ class DiffusionDataset(torch.utils.data.Dataset):
         stats = dict()
         normalized_train_data = dict()
         data_to_normalize = ['nagent_pos', 'actions']
-        HARDCODED_IMG_STATS = {'mean':[0.485, 0.456, 0.406],
-                               'std':[0.229, 0.224, 0.225]}
 
         for key, data in train_data.items():
             if key in data_to_normalize:
                 stats[key] = get_data_stats(data)
                 normalized_train_data[key] = normalize_data(data, stats[key]).astype(np.float32)
                 normalized_train_data[key] = data.astype(np.float32)
-
-        # Image stats
-        stats['nimage'] = HARDCODED_IMG_STATS
+            else:
+                normalized_train_data[key] = np.array(data).astype(np.float32)
         
         # transforms for image data
         if self.is_state_based==False:
@@ -164,7 +161,7 @@ class DiffusionDataset(torch.utils.data.Dataset):
             ac_seq_len=self.pred_horizon,
             batch_size=1,
             start_idxs=[idx]
-        )
+        ) # stacked_image_data_info is None if is_state_based==True
 
         # convert to tensors
         nsample['nagent_pos'] = torch.from_numpy(stacked_obs[0].astype(np.float32)) # shape (obs_horizon, state_dim)
@@ -186,20 +183,20 @@ class DiffusionDataset(torch.utils.data.Dataset):
 if __name__=="__main__":
     # Just for testing
     dataset = "converted_data_block_pick"
-    dataset_path = '/home/ros_ws/dataset/data/'+dataset+'/eval'
+    dataset_path = '/home/ros_ws/dataset/data/'+dataset+'/train'
     assert os.path.exists(dataset_path), "Dataset path does not exist"
-    eval_dataset = DiffusionDataset(dataset_path=dataset_path,
-                                 pred_horizon=16,
+    dataset = DiffusionDataset(dataset_path=dataset_path,
+                                 pred_horizon=1,
                                  obs_horizon=2,
-                                 action_horizon=8, is_state_based=False)
+                                 action_horizon=1, is_state_based=False)
     
     # iterate over the dataset and print shapes of each element
     ### Create dataloader
     eval_dataloader = torch.utils.data.DataLoader(
-        eval_dataset,
-        batch_size=4,
+        dataset,
+        batch_size=128,
         num_workers=4,
-        shuffle=False,
+        shuffle=True,
         # accelerate cpu-gpu transfer
         pin_memory=True,
         # don't kill worker process afte each epoch
@@ -211,5 +208,5 @@ if __name__=="__main__":
         print("Batch: ", i)
         print("size of nagent_pos: ", data['nagent_pos'].shape)
         print("size of actions: ", data['actions'].shape)
-        if not eval_dataset.is_state_based:
+        if not dataset.is_state_based:
             print("size of image: ", data['image'].shape)

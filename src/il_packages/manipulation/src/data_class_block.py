@@ -27,6 +27,7 @@ from frankapy.proto import PosePositionSensorMessage, ShouldTerminateSensorMessa
 EXPERT_RECORD_FREQUENCY = 10
 RESET_SPEED = 3
 Z_PICK = 0.018
+COLLECT_AUDIO = False
 class Data():
     def __init__(self) -> None:
         self.pub = rospy.Publisher(FC.DEFAULT_SENSOR_PUBLISHER_TOPIC, SensorDataGroup, queue_size=1000)
@@ -339,7 +340,8 @@ class Data():
                 obs.append([curr_joints, curr_gripper_width])
                 tool_poses_i.append(curr_pose)
                 acts.append([next_pose, next_gripper])
-                audios.append(self.audio_data)
+                if COLLECT_AUDIO:
+                    audios.append(self.audio_data)
                 images.append(self.image)
                 timesteps.append(rospy.Time.now().to_nsec())
                 
@@ -424,12 +426,13 @@ class Data():
                 cv2.imwrite(os.path.join(img_folder, str(i) + ".png"), images[i])
                 
             # Save audio
-            audio_folder = '/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/Audio/' + str(traj_num)
-            if not os.path.exists(audio_folder):
-                os.makedirs(audio_folder)
-            
-            for i in range(len(audios)):
-                np.save(os.path.join(audio_folder, str(i) + ".npy"), audios[i])
+            if COLLECT_AUDIO:
+                audio_folder = '/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/Audio/' + str(traj_num)
+                if not os.path.exists(audio_folder):
+                    os.makedirs(audio_folder)
+                
+                for i in range(len(audios)):
+                    np.save(os.path.join(audio_folder, str(i) + ".npy"), audios[i])
 
             self.reset_environment()
             

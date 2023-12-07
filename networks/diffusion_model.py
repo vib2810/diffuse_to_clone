@@ -212,11 +212,7 @@ class DiffusionTrainer(nn.Module):
         Assumes that the batch size is 1
         """
         # Compute next pred_horizon actions and store the next action_horizon actions in a list
-        if len(self.mpc_actions) == 0:
-            if not self.is_state_based:
-                # TODO: @ag6 revert these changes
-                nimage = normalize_data(nimage, self.stats['nimage'],mode = 'gaussian') #todo CHANGE THIS
-                
+        if len(self.mpc_actions) == 0:          
             nagent_pos = normalize_data(nagent_pos, self.stats['nagent_pos'],mode='minmax')
             naction = self.get_all_actions_normalized(nimage, nagent_pos, sampler=sampler)
             naction_unnormalized = naction

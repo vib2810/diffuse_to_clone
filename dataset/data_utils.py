@@ -285,19 +285,25 @@ def get_stacked_samples(observations, actions,
     """
     if start_idxs is None:
         start_idxs = np.random.randint(0, len(observations) - ob_seq_len - ac_seq_len, batch_size)
-    
-    # print("start_idxs", start_idxs)
-    
+        
     stacked_observations = []
     stacked_actions = []
     stacked_image_data_info = []
+        
     ### TODO: For loop is not needed here!
     for start_idx in start_idxs:
         obs = get_stacked_sample(observations, terminals, ob_seq_len, start_idx)
         ac = get_stacked_action(actions, terminals, ac_seq_len, start_idx + ob_seq_len - 1)
-        im = get_stacked_sample(image_data_info, terminals, ob_seq_len, start_idx)
         stacked_observations.append(obs)
         stacked_actions.append(ac)
-        stacked_image_data_info.append(im)
+        
+        if image_data_info is not None:
+            im = get_stacked_sample(image_data_info, terminals, ob_seq_len, start_idx)
+            stacked_image_data_info.append(im)
+        
+        
+    if image_data_info is None:
+        return np.stack(stacked_observations), np.stack(stacked_actions), None
+    
     # (batch_size, seq_len, ob_dim), (batch_size, ac_seq_len, ac_dim), (batch_size, seq_len, 2)
     return np.stack(stacked_observations), np.stack(stacked_actions), np.stack(stacked_image_data_info)
