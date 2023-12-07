@@ -120,8 +120,8 @@ class ModelTrainer:
             # batch loop
             for nbatch in self.dataloader:  
                 # data normalized in dataset
-                # device transfer
 
+                # device transfer
                 # convert ti float 32
                 nbatch = {k: v.float() for k, v in nbatch.items()}                      
                 if(self.is_state_based):
@@ -143,8 +143,8 @@ class ModelTrainer:
                 self.writer.add_scalar('Loss/train', loss_cpu, global_step)
                 global_step += 1
                 
-                if(not global_step%10):
-                    print("Epoch: {}, Step: {}, Loss: {}".format(epoch_idx, global_step, loss_cpu))
+                # if(not global_step%10):
+                print("Epoch: {}, Step: {}, Loss: {}".format(epoch_idx, global_step, loss_cpu))
             
             # evaluate model on test data
             self.model.run_after_epoch()

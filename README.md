@@ -34,3 +34,8 @@ Diffusion Models for Imitation Learning
       ```
       roslaunch manipulation data_collect_vision.launch
       ```
+
+      Launch realsense from inside PC
+      ```
+      export ROS_IP=172.26.230.217 && export ROS_MASTER_URI=http://172.26.165.201:11311/ && roslaunch realsense2_camera rs_camera.launch 
+      ```

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import cv2
 import sys
 import copy
 import rospy
@@ -40,6 +41,9 @@ class Data():
         rospy.Subscriber('/camera/color/image_raw', Image, self.image_callback)
 
     def audio_callback(self, data):
+        """
+        Maintain an audio buffer of size 32000 (last ~2 seconds of audio)
+        """
         self.audio_data.extend(data.data)
         if len(self.audio_data) > self.audio_buffer_size:
             self.audio_data = self.audio_data[-self.audio_buffer_size:]
@@ -160,14 +164,14 @@ class Data():
         elif self.current_toy_state == 1: # pick
             # check if arrived at pick pose
             norm_diff = self.get_current_pose_norm(self.pick_pose, curr_pose)
-            if norm_diff < self.NORM_DIFF_TOL and abs(curr_pose.position.z - Z_PICK) < self.Z_ABS_TOL:
+            if abs(curr_pose.position.z - Z_PICK) < self.Z_ABS_TOL:
                 self.previous_toy_state = 1
                 self.current_toy_state = 2
                 print("Arrived at pick pose")
                 return self.get_next_joint_planner_toy_joints(curr_pose, curr_gripper_width)
             
             # plan to pick pose
-            next_action = self.get_next_pose_interp(self.pick_pose.pose, curr_pose, speed=0.015)
+            next_action = self.get_next_pose_interp(self.pick_pose.pose, curr_pose, speed=0.016)
             return next_action, curr_gripper_width
             
         elif self.current_toy_state == 2: # grasp
@@ -220,7 +224,7 @@ class Data():
             # check if arrived at place pose
             norm_diff = self.get_current_pose_norm(self.place_pose, curr_pose)
             # print place pose and curr pose
-            if norm_diff < self.NORM_DIFF_TOL and abs(curr_pose.position.z - Z_PICK) < self.Z_ABS_TOL:
+            if abs(curr_pose.position.z - Z_PICK) < self.Z_ABS_TOL:
                 self.previous_toy_state = 4
                 self.current_toy_state = 5
                 print("Arrived at place pose")
@@ -237,8 +241,8 @@ class Data():
                 self.current_toy_state = 3
                 print("Gripper Opened, action complete")
                 # record accurate place pose
-                self.place_pose = get_posestamped(np.array([curr_pose.position.x, curr_pose.position.y, Z_PICK]),
-                                                  np.array([1,0,0,0]))
+                # self.place_pose = get_posestamped(np.array([curr_pose.position.x, curr_pose.position.y, Z_PICK]),
+                #                                   np.array([1,0,0,0]))
                 return self.get_next_joint_planner_toy_joints(curr_pose, curr_gripper_width)
             
             # open gripper for 0.01 m 
@@ -266,8 +270,13 @@ class Data():
         self.pick_pose = expt_data_dict["pick_pose"]
         self.place_pose = expt_data_dict["place_pose"]
         expt_folder = '/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"]
+        expt_img_folder = '/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/Images'
+
         if not os.path.exists(expt_folder):
             os.makedirs(expt_folder)
+
+        if not os.path.exists(expt_img_folder):
+            os.makedirs(expt_img_folder)
         
         if not self.got_image:
             # wait for 3 seconds to get image
@@ -279,6 +288,9 @@ class Data():
 
         if not os.path.exists(expt_folder):
             os.makedirs(expt_folder)
+
+        # Place the block at a random location
+        self.reset_environment()
 
         for i in range (expt_data_dict["n_trajectories"]):
             print(f"--------------Recording Trajectory {i}--------------")
@@ -302,8 +314,8 @@ class Data():
         
             # Variables for recording data
             obs, acts, timesteps, tool_poses_i = [], [], [], []
-            images = []
-
+            audios, images = [], []
+            
             # Start recording data
             counter = 0
             init_time = rospy.Time.now().to_time()
@@ -327,6 +339,7 @@ class Data():
                 obs.append([curr_joints, curr_gripper_width])
                 tool_poses_i.append(curr_pose)
                 acts.append([next_pose, next_gripper])
+                audios.append(self.audio_data)
                 images.append(self.image)
                 timesteps.append(rospy.Time.now().to_nsec())
                 
@@ -381,8 +394,8 @@ class Data():
                 "actions": acts,
                 "timestamps": timesteps,
                 "tool_poses": tool_poses_i,
-                # "audio_data": self.audio_data,
-                "image_data": images
+                # "audio_data": audios,
+                # "image_data": images
             }
             print("Recorded Trajectory of length: ", len(obs))
             
@@ -402,7 +415,23 @@ class Data():
             with open('/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/'+ expt_data_dict["experiment_name"] + '_' + str(traj_num) + '.pkl', 'wb') as f:
                 pickle.dump(data, f)
 
-            self.reset()
+            # Save images
+            img_folder = '/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/Images/' + str(traj_num)
+            if not os.path.exists(img_folder):
+                os.makedirs(img_folder)
+
+            for i in range(len(images)):
+                cv2.imwrite(os.path.join(img_folder, str(i) + ".png"), images[i])
+                
+            # Save audio
+            audio_folder = '/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/Audio/' + str(traj_num)
+            if not os.path.exists(audio_folder):
+                os.makedirs(audio_folder)
+            
+            for i in range(len(audios)):
+                np.save(os.path.join(audio_folder, str(i) + ".npy"), audios[i])
+
+            self.reset_environment()
             
     def goto_hover_pose(self, given_pose: RigidTransform):
         hover_pose = copy.deepcopy(given_pose)
@@ -426,9 +455,9 @@ class Data():
         self.goto_hover_pose(given_pose)
 
     # Boundaries for randomly placing the block to after reset
-    LOWER_X, LOWER_Y = 0.4, -0.33
+    LOWER_X, LOWER_Y = 0.4, -0.2
     UPPER_X, UPPER_Y = 0.6, 0.06
-    def reset(self):
+    def reset_environment(self):
         """
         Resets the object
         """

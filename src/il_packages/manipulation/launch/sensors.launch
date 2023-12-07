@@ -12,6 +12,6 @@
       like hw:1,0 -->
   <!-- <include file="$(find audio_capture)/launch/capture.launch">
     <arg name="device" value="hw:2,0"/>
-  </include> -->
+  </include>                                                                                                                                       -->
   
 </launch>

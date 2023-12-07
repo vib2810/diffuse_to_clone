@@ -79,16 +79,31 @@ def get_data_stats(data):
     }
     return stats
 
-def normalize_data(data, stats):
-    # nomalize to [0,1]
-    ndata = (data - stats['min']) / (stats['max'] - stats['min'])
-    # normalize to [-1, 1]
-    ndata = ndata * 2 - 1
+def normalize_data(data, stats, mode='minmax'):
+
+    if mode=='minmax':
+        # nomalize to [0,1]
+        ndata = (data - stats['min']) / (stats['max'] - stats['min'])
+        # normalize to [-1, 1]
+        ndata = ndata * 2 - 1
+
+    elif mode=='gaussian': 
+        # normalize to gaussian
+        ndata = (data - stats['mean']) / stats['std']
+
+    else:
+        raise ValueError("mode should be either minmax or gaussian")
+
     return ndata
 
-def unnormalize_data(ndata, stats):
-    ndata = (ndata + 1) / 2
-    data = ndata * (stats['max'] - stats['min']) + stats['min']
+def unnormalize_data(ndata, stats,mode='minmax'):
+    if mode=='minmax':
+        ndata = (ndata + 1) / 2
+        data = ndata * (stats['max'] - stats['min']) + stats['min']
+    elif mode=='gaussian':
+        data = ndata * stats['std'] + stats['mean']
+    else:
+        raise ValueError("mode should be either minmax or gaussian")
     return data
 
 def parse_poses(tool_poses_msg:list, mode='xyz_quat'):
@@ -209,6 +224,7 @@ def get_stacked_sample(observations, terminals, seq_len, start_idx):
     - Observation: (N, ob_dim)
     - Terminals: (N, 1)
     - Previous Observations: (N, ob_dim)
+    This functions puts zero padding in the start if there is a terminal state in between!
     """
     end_idx = start_idx + seq_len
     # check if there is a terminal state between start and end
@@ -275,6 +291,7 @@ def get_stacked_samples(observations, actions,
     stacked_observations = []
     stacked_actions = []
     stacked_image_data_info = []
+    ### TODO: For loop is not needed here!
     for start_idx in start_idxs:
         obs = get_stacked_sample(observations, terminals, ob_seq_len, start_idx)
         ac = get_stacked_action(actions, terminals, ac_seq_len, start_idx + ob_seq_len - 1)

@@ -10,6 +10,7 @@ import pickle
 import numpy as np
 import sys
 import os
+import cv2
 import time
 import sys
 from data_utils import *
@@ -42,22 +43,24 @@ class DiffusionDataset(torch.utils.data.Dataset):
         self.dataset_path = dataset_path
         self.is_state_based = is_state_based
         
+        # Assert that there is an Images folder if is_state_based==False
+        if self.is_state_based==False:
+            assert os.path.exists(os.path.join(dataset_path, "Images")), "Images folder does not exist"    
+
         # read all pkl files one by one
         self.files = [os.path.join(dataset_path, f) for f in os.listdir(dataset_path) if f.endswith('.pkl')]
         train_data = initialize_data(is_state_based=is_state_based)
-        for idx,file in enumerate(self.files):
+
+        
+        for idx, file in enumerate(self.files):
             dataset_root = pickle.load(open(file, 'rb'))
             state_data = parse_states(dataset_root['observations'])
             actions_data = parse_actions(dataset_root['actions'], mode='xyz')
             
-            # assert images exist in all files if is_state_based==False
-            if self.is_state_based==False:
-                # assert data has image_data
-                assert 'image_data' in dataset_root.keys(), "Image data not found in file {}".format(file)
-                        
             # store the idx of the file and the idx of the datapoint within the file
             if self.is_state_based==False:
-                image_file_idx = np.array([idx]*len(state_data))
+                trajectory_idx = int(file.split("/")[-1].split("_")[-1].split(".")[0])
+                image_file_idx = np.array([trajectory_idx]*len(state_data))
                 image_data_idx = np.arange(len(state_data))
                 image_data_info = np.stack((image_file_idx, image_data_idx), axis=1) # shape (N,2)
 
@@ -88,12 +91,17 @@ class DiffusionDataset(torch.utils.data.Dataset):
         stats = dict()
         normalized_train_data = dict()
         data_to_normalize = ['nagent_pos', 'actions']
+        HARDCODED_IMG_STATS = {'mean':[0.485, 0.456, 0.406],
+                               'std':[0.229, 0.224, 0.225]}
+
         for key, data in train_data.items():
             if key in data_to_normalize:
                 stats[key] = get_data_stats(data)
                 normalized_train_data[key] = normalize_data(data, stats[key]).astype(np.float32)
-            else:
                 normalized_train_data[key] = data.astype(np.float32)
+
+        # Image stats
+        stats['nimage'] = HARDCODED_IMG_STATS
         
         # transforms for image data
         if self.is_state_based==False:
@@ -101,6 +109,7 @@ class DiffusionDataset(torch.utils.data.Dataset):
                 transforms.ToPILImage(),
                 transforms.Resize((256,256)),
                 transforms.CenterCrop(224),
+                # transforms.Resize((96,96)),
                 transforms.ToTensor(), # converts to [0,1] and (C,H,W)
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ])
@@ -117,7 +126,7 @@ class DiffusionDataset(torch.utils.data.Dataset):
 
     def print_size(self, string):
         print("Dataset {}".format(string))
-        ### Store some stats about training data
+        ### Store some stats about training data.
         print_data_dict_shapes(self.normalized_train_data)
     
     def get_images(self, image_data_info):
@@ -125,30 +134,19 @@ class DiffusionDataset(torch.utils.data.Dataset):
         Input: image_data_info: shape (N,2) np array
         Output: image_data: shape (N,3,224,224)
         """
-        # Create a mapping from file index to data indices and their original positions
-        file_groups = {}
-        # prunt shape of image_data_info
-        for idx in range(len(image_data_info)):
-            file_idx = int(image_data_info[idx, 0])
-            data_idx = int(image_data_info[idx, 1])
-
-            if file_idx not in file_groups:
-                file_groups[file_idx] = []
-            file_groups[file_idx].append((idx, data_idx))
-
         # Prepare an array to hold the images in the original order
         image_data = [None] * len(image_data_info)
 
-        # Load images and place them in their original order
-        for file_idx, idx_data_pairs in file_groups.items():
-            file = self.files[file_idx]
-            with open(file, 'rb') as f:
-                dataset_root = pickle.load(f)
-                for original_idx, data_idx in idx_data_pairs:
-                    image = dataset_root['image_data'][data_idx] # shape (480, 640, 3)
-                    # Transform each image individually
-                    image = self.image_transforms(image) # shape (3, 224, 224)
-                    image_data[original_idx] = image
+        for idx in range(len(image_data_info)):
+            file_idx = int(image_data_info[idx, 0])
+            data_idx = int(image_data_info[idx, 1])
+            
+            file_path = os.path.join(self.dataset_path, "Images", str(file_idx), str(data_idx)+".png")
+            image = cv2.imread(file_path) # shape (480, 640, 3)
+            
+            # Transform each image individually
+            image = self.image_transforms(image) # shape (3, 224, 224)
+            image_data[idx] = image
 
         # Stack the transformed images into a batch
         image_data = torch.stack(image_data, dim=0) # shape (N,3,224,224)
@@ -186,7 +184,8 @@ class DiffusionDataset(torch.utils.data.Dataset):
 
 
 if __name__=="__main__":
-    dataset = "toy_expt_vision_block_pick"
+    # Just for testing
+    dataset = "converted_data_block_pick"
     dataset_path = '/home/ros_ws/dataset/data/'+dataset+'/eval'
     assert os.path.exists(dataset_path), "Dataset path does not exist"
     eval_dataset = DiffusionDataset(dataset_path=dataset_path,

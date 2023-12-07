@@ -5,6 +5,8 @@ import rospy
 import numpy as np
 from geometry_msgs.msg import PoseStamped, Pose
 import torch
+import cv2
+from sensor_msgs.msg import Image
 
 sys.path.append("/home/ros_ws/src/il_packages/manipulation/src")
 sys.path.append("/home/ros_ws/")
@@ -33,6 +35,7 @@ class ModelTester:
     ACTION_HORIOZON = 8
     ACTION_SAMPLER = "ddim"
     DDIM_STEPS = 10
+    USE_GOTO_POSE = True
 
     def __init__(self,
             model_name
@@ -72,6 +75,11 @@ class ModelTester:
 
         if "obs_horizon" not in self.train_params:
             self.train_params["obs_horizon"] = 1
+
+        # Initialize image subscriber
+        self.img_sub = rospy.Subscriber('camera/color/image_raw', Image, self.image_callback, queue_size=1)
+        self.img_buffer = [np.zeros((3,224,224))]*self.train_params["obs_horizon"]
+        self.curr_image = None
         
         # Initialize sequence buffer with zeoros of size obs_horizon
         # self.seq_buffer = [np.zeros(self.train_params["obs_dim"])]*self.train_params["obs_horizon"]
@@ -81,6 +89,20 @@ class ModelTester:
         # test gripper
         self.fa.close_gripper()
         self.fa.open_gripper()
+
+    def image_callback(self, img_msg):
+        """ Callback function from realsense camera """
+
+        rospy.loginfo("Received image in realsense callback")
+
+        # Convert image to numpy array
+        img = np.frombuffer(img_msg.data, dtype=np.uint8).reshape(img_msg.height, img_msg.width, -1)
+        # Resize to 224x224
+        img = cv2.resize(img, (224, 224))
+        # Make it C,H,W
+        img = np.transpose(img, (2, 0, 1))
+        
+        self.curr_image = img
 
 
     def test_model(self, N_EVALS=20):
@@ -112,9 +134,10 @@ class ModelTester:
         rate = rospy.Rate(EXPERT_RECORD_FREQUENCY)
 
         # To ensure skill doesn't end before completing trajectory, make the buffer time much longer than needed
-        self.fa.goto_pose(self.fa.get_pose(), duration=120, dynamic=True, buffer_time=10,
-                cartesian_impedances=FC.DEFAULT_TRANSLATIONAL_STIFFNESSES[:3] + FC.DEFAULT_ROTATIONAL_STIFFNESSES)
-        
+        if(not self.USE_GOTO_POSE):
+            self.fa.goto_pose(self.fa.get_pose(), duration=120, dynamic=True, buffer_time=10,
+                    cartesian_impedances=FC.DEFAULT_TRANSLATIONAL_STIFFNESSES[:3] + FC.DEFAULT_ROTATIONAL_STIFFNESSES)
+            
         # Initialize variables to store data
         init_time = rospy.Time.now().to_time()
         counter = 0
@@ -125,29 +148,32 @@ class ModelTester:
                 break
             
             # Publish the data
-            timestamp = rospy.Time.now().to_time() - init_time
-            traj_gen_proto_msg = PosePositionSensorMessage(
-                id=counter, timestamp=timestamp, 
-                position=[next_pose.position.x, next_pose.position.y, next_pose.position.z],
-                quaternion=[next_pose.orientation.w, next_pose.orientation.x, next_pose.orientation.y, next_pose.orientation.z]
-            )
-            fb_ctrlr_proto = CartesianImpedanceSensorMessage(
-                id=counter, timestamp=timestamp,
-                translational_stiffnesses=FC.DEFAULT_TRANSLATIONAL_STIFFNESSES[:3],
-                rotational_stiffnesses=FC.DEFAULT_ROTATIONAL_STIFFNESSES
-            )
-            ros_msg = make_sensor_group_msg(
-                trajectory_generator_sensor_msg=sensor_proto2ros_msg(
-                    traj_gen_proto_msg, SensorDataMessageType.POSE_POSITION),
-                feedback_controller_sensor_msg=sensor_proto2ros_msg(
-                    fb_ctrlr_proto, SensorDataMessageType.CARTESIAN_IMPEDANCE)
-            )
+            if(not self.USE_GOTO_POSE):
+                timestamp = rospy.Time.now().to_time() - init_time
+                traj_gen_proto_msg = PosePositionSensorMessage(
+                    id=counter, timestamp=timestamp, 
+                    position=[next_pose.position.x, next_pose.position.y, next_pose.position.z],
+                    quaternion=[next_pose.orientation.w, next_pose.orientation.x, next_pose.orientation.y, next_pose.orientation.z]
+                )
+                fb_ctrlr_proto = CartesianImpedanceSensorMessage(
+                    id=counter, timestamp=timestamp,
+                    translational_stiffnesses=FC.DEFAULT_TRANSLATIONAL_STIFFNESSES[:3],
+                    rotational_stiffnesses=FC.DEFAULT_ROTATIONAL_STIFFNESSES
+                )
+                ros_msg = make_sensor_group_msg(
+                    trajectory_generator_sensor_msg=sensor_proto2ros_msg(
+                        traj_gen_proto_msg, SensorDataMessageType.POSE_POSITION),
+                    feedback_controller_sensor_msg=sensor_proto2ros_msg(
+                        fb_ctrlr_proto, SensorDataMessageType.CARTESIAN_IMPEDANCE)
+                )
+                
+                self.pub.publish(ros_msg)
             
-            self.pub.publish(ros_msg)
+            else:
             
-            # next_pose.position.z = max(next_pose.position.z, 0.0)
-            # next_pose_rigid = getRigidTransform(next_pose)
-            # self.fa.goto_pose(next_pose_rigid, duration=1)
+                next_pose.position.z = max(next_pose.position.z, 0.0)
+                next_pose_rigid = getRigidTransform(next_pose)
+                self.fa.goto_pose(next_pose_rigid, duration=1)
             
             next_gripper = np.clip(next_gripper, FC.GRIPPER_WIDTH_MIN, FC.GRIPPER_WIDTH_MAX)
             self.fa.goto_gripper(next_gripper, block=False, speed = 0.2)
@@ -196,15 +222,30 @@ class ModelTester:
         #     return None, None
         # self.prev_joints = curr_joints
         
-        # Get next action
+        # Get stacked joints
         stacked_input = np.stack(self.seq_buffer, axis=0)
         print(f"stacked input: {stacked_input}")
         nagent_pos = torch.from_numpy(stacked_input).float().unsqueeze(0).to(self.model.device)
         # print obs_tensor.shape
         print(f"nagent_pos: {nagent_pos.shape}")
 
+        ### Getting images
+        if(self.train_params["is_state_based"]):
+            nimage = None
+        else:
+            if self.curr_image is not None:
+                self.img_buffer.pop(0)
+                self.img_buffer.append(self.curr_image)
+                
+            else:
+                rospy.logwarn("Image buffer is empty. Using zeros")
+
+            stacked_images = np.stack(self.seq_buffer, axis=0)
+            print(f"stacked images input: {stacked_images}")
+            nimage = torch.from_numpy(stacked_images).float().unsqueeze(0).to(self.model.device)
+
         # forward pass model to get action
-        action = self.model.get_mpc_action(nimage=None, nagent_pos=nagent_pos)
+        action = self.model.get_mpc_action(nimage=nimage, nagent_pos=nagent_pos)
         
         print("Curr State: ", curr_pose.position.x, curr_pose.position.y, curr_pose.position.z, curr_gripper)
         print(f"Model Action: {action}")
