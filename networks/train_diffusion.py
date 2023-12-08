@@ -35,13 +35,12 @@ if __name__ == "__main__":
 
     # Make the train params
     train_params = {
-        "batch_size": 64,
-        "eval_batch_size": 64,
+        "batch_size": 128,
+        "eval_batch_size": 128,
         "num_workers": 4,
         "num_epochs": 400,
         "learning_rate": 1e-4,
         "loss": nn.functional.mse_loss,
-        'use_stats': False,
         'model_class': DiffusionTrainer,
         'num_diffusion_iters': 100,
         'num_ddim_iters': 10, # for DDIM sampling

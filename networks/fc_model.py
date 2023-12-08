@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from networks.model_utils import normalize_data, unnormalize_data
+from dataset.data_utils import *
 from diffusion_model_vision import *
 
 class FCTrainer(nn.Module):
@@ -80,10 +81,10 @@ class FCTrainer(nn.Module):
         if not self.is_state_based:
             self.vision_encoder.to(self.device)
         
-        if self.stats is not None:
-            for key in self.stats:
-                self.stats[key]['min'] = self.stats[key]['min'].to(self.device)
-                self.stats[key]['max'] = self.stats[key]['max'].to(self.device)
+        for key in self.stats.keys():
+            for subkey in self.stats[key].keys():
+                if type(self.stats[key][subkey]) == torch.Tensor:
+                    self.stats[key][subkey] = self.stats[key][subkey].to(self.device)
     
     def make_network(self, input_size, output_size, n_layers, size, activation, output_activation):
         layers = []
