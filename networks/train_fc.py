@@ -12,11 +12,11 @@ import sys
 import os
 import time
 
-from networks.fc_model import FCTrainer
 import sys
+from fc_model import FCTrainer
+from model_trainer import ModelTrainer
 sys.path.append("/home/ros_ws/")
-from networks.model_utils import seed_everything
-from networks.model_trainer import ModelTrainer
+from model_utils import seed_everything
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
@@ -28,7 +28,7 @@ if __name__ == "__main__":
     data_params = {
         "dataset_path": f'/home/ros_ws/dataset/data/{dataset_name}/train',
         'eval_dataset_path': f'/home/ros_ws/dataset/data/{dataset_name}/eval',
-        "is_state_based": True,
+        "is_state_based": False,
         "pred_horizon": 1,  # for FC model
         "obs_horizon": 2,
         "action_horizon": 1, # for FC model
@@ -36,17 +36,16 @@ if __name__ == "__main__":
     
     # Make the train params
     train_params = {
-        "batch_size": 256,
-        "eval_batch_size": 256,
+        "batch_size": 128,
+        "eval_batch_size": 128,
         "learning_rate": 1e-4,
         "n_layers": 4,
-        "hidden_size": 128,
-        "num_workers": 4,
+        "hidden_size": 512,
+        "num_workers": 8,
         "num_epochs": 400,
         "loss": nn.functional.mse_loss,
         "activation": nn.ReLU(),
         "output_activation": nn.Identity(),
-        'use_stats': False,
         'model_class': FCTrainer,
         'device': 'cuda:0',
     }

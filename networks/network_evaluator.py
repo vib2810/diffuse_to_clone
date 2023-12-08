@@ -18,7 +18,7 @@ sys.path.append("/home/ros_ws/networks") # for torch.load to work
 
 
 class ModelEvaluator:
-    ACTION_HORIOZON = 8
+    ACTION_HORIOZON = 1
     DDIM_STEPS = 10
     def __init__(self,
             model_name
@@ -66,8 +66,8 @@ class ModelEvaluator:
         ### Create dataloader
         self.eval_dataloader = torch.utils.data.DataLoader(
             eval_dataset,
-            batch_size=self.train_params['batch_size'],
-            num_workers=self.train_params['num_workers'],
+            batch_size=1,
+            num_workers=1,
             shuffle=False,
             # accelerate cpu-gpu transfer
             pin_memory=True,
@@ -115,9 +115,14 @@ class ModelEvaluator:
             # print("Output of eval: model_actions", model_actions)
             
             # unnormalized printing
-            # print("Input to eval unnorm: nagent_pos", unnormalize_data(nagent_pos, self.model.stats['nagent_pos']))
-            # print("Input to eval unnorm: naction", unnormalize_data(naction, self.model.stats['actions']))
-            # print("Output of eval unnorm: model_actions", unnormalize_data(model_actions, self.model.stats['actions']))
+            model_actions_unnorm = unnormalize_data(model_actions, self.model.stats['actions']).squeeze()
+            if model_actions_unnorm[0]<0.5:
+                print("Input to eval unnorm: nagent_pos", unnormalize_data(nagent_pos, self.model.stats['nagent_pos']))
+                print("Input to eval unnorm: naction", unnormalize_data(naction, self.model.stats['actions']))
+                print("Output of eval unnorm: model_actions", unnormalize_data(model_actions, self.model.stats['actions']))
+            else:
+                print(model_actions_unnorm[0])
+            print()
             total_loss += loss*B    
             max_loss = max(max_loss, loss)
         
@@ -129,7 +134,7 @@ class ModelEvaluator:
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         print("Usage: please provide model_name as node argument")
-        print("Example: rosrun manipulation test_network.py <model_name> <dataset_name>")
+        print("Example: rosrun manipulation network_evaluator.py <model_name> <dataset_name>")
         sys.exit()
 
     model_name = sys.argv[1]

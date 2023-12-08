@@ -19,6 +19,7 @@ from src.git_packages.frankapy.frankapy.proto import JointPositionSensorMessage,
 from franka_interface_msgs.msg import SensorDataGroup
 from src.il_packages.manipulation.src.moveit_class import get_pose_norm, get_posestamped, EXPERT_RECORD_FREQUENCY
 from src.il_packages.manipulation.src.data_class import getRigidTransform
+from torchvision import transforms
 
 sys.path.append("/home/ros_ws/src/git_packages/frankapy")
 from frankapy.proto import PosePositionSensorMessage, CartesianImpedanceSensorMessage
@@ -32,7 +33,7 @@ class ModelTester:
     ACTION_LIMIT_THRESHOLD = 0.6
     SMALL_NORM_CHANGE_BREAK_THRESHOLD = 1e-5
     NUM_STEPS = 500
-    ACTION_HORIOZON = 8
+    ACTION_HORIZON_DIFFUSION = 8
     ACTION_SAMPLER = "ddim"
     DDIM_STEPS = 10
     USE_GOTO_POSE = True
@@ -43,9 +44,9 @@ class ModelTester:
         # Initialize the model
         stored_pt_file = torch.load("/home/ros_ws/logs/models/" + model_name + ".pt", map_location=torch.device('cpu'))
         self.train_params = {key: stored_pt_file[key] for key in stored_pt_file if key != "model_weights"}
-        self.train_params["action_horizon"] = self.ACTION_HORIOZON
-        self.train_params["num_ddim_iters"] = self.DDIM_STEPS
         if str(stored_pt_file["model_class"]).find("DiffusionTrainer") != -1:
+            self.train_params["action_horizon"] = self.ACTION_HORIZON_DIFFUSION
+            self.train_params["num_ddim_iters"] = self.DDIM_STEPS
             print("Loading Diffusion Model")
             self.model = DiffusionTrainer(
                 train_params=self.train_params,
@@ -61,6 +62,7 @@ class ModelTester:
             self.model.initialize_mpc_action()
             
         self.model.load_model_weights(stored_pt_file["model_weights"])
+        self.is_state_based = self.train_params["is_state_based"]
 
         # print model hparams (except model_weights)
         for key in self.train_params:
@@ -78,8 +80,16 @@ class ModelTester:
 
         # Initialize image subscriber
         self.img_sub = rospy.Subscriber('camera/color/image_raw', Image, self.image_callback, queue_size=1)
-        self.img_buffer = [np.zeros((3,224,224))]*self.train_params["obs_horizon"]
+        self.img_buffer = None
         self.curr_image = None
+        self.image_transforms = transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.Resize((256,256)),
+                transforms.CenterCrop(224),
+                # transforms.Resize((96,96)),
+                transforms.ToTensor(), # converts to [0,1] and (C,H,W)
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ])
         
         # Initialize sequence buffer with zeoros of size obs_horizon
         # self.seq_buffer = [np.zeros(self.train_params["obs_dim"])]*self.train_params["obs_horizon"]
@@ -93,15 +103,10 @@ class ModelTester:
     def image_callback(self, img_msg):
         """ Callback function from realsense camera """
 
-        rospy.loginfo("Received image in realsense callback")
-
         # Convert image to numpy array
         img = np.frombuffer(img_msg.data, dtype=np.uint8).reshape(img_msg.height, img_msg.width, -1)
-        # Resize to 224x224
-        img = cv2.resize(img, (224, 224))
-        # Make it C,H,W
-        img = np.transpose(img, (2, 0, 1))
         
+        img = self.image_transforms(img)
         self.curr_image = img
 
 
@@ -215,7 +220,7 @@ class ModelTester:
         self.seq_buffer.pop(0)
         self.seq_buffer.append(next_state)
         
-        # Append norm diff to prev_joint_norm_diffs 
+        # Break Condition Check
         # norm_diff = np.linalg.norm(self.prev_joints - curr_joints)
         # if norm_diff < self.SMALL_NORM_CHANGE_BREAK_THRESHOLD:
         #     print(f"Break due to small norm change: {norm_diff} < {self.SMALL_NORM_CHANGE_BREAK_THRESHOLD}")
@@ -230,20 +235,25 @@ class ModelTester:
         print(f"nagent_pos: {nagent_pos.shape}")
 
         ### Getting images
-        if(self.train_params["is_state_based"]):
+        if(self.is_state_based):
             nimage = None
         else:
-            if self.curr_image is not None:
-                self.img_buffer.pop(0)
-                self.img_buffer.append(self.curr_image)
+            if self.curr_image == None:
+                rospy.logerr("No image received. Exiting")
+                sys.exit()
+            if self.img_buffer is None:
+                self.img_buffer = [self.curr_image]*self.train_params["obs_horizon"]
                 
-            else:
-                rospy.logwarn("Image buffer is empty. Using zeros")
+            self.img_buffer.pop(0)
+            self.img_buffer.append(self.curr_image)
 
-            stacked_images = np.stack(self.seq_buffer, axis=0)
-            print(f"stacked images input: {stacked_images}")
+            stacked_images = np.stack(self.img_buffer, axis=0)
+            print(f"stacked images input: {stacked_images.shape}")
             nimage = torch.from_numpy(stacked_images).float().unsqueeze(0).to(self.model.device)
 
+            # print nimage
+            print(f"nimage: {nimage.shape}, {nimage}")
+        
         # forward pass model to get action
         action = self.model.get_mpc_action(nimage=nimage, nagent_pos=nagent_pos)
         

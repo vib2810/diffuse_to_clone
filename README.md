@@ -10,6 +10,7 @@ Diffusion Models for Imitation Learning
    ```
    docker build -t diffusion .
    ```
+   Use `newgrp docker` if you didnt logout 
 
 ## Running the code:
 0. Unlock robot joints
@@ -39,3 +40,10 @@ Diffusion Models for Imitation Learning
       ```
       export ROS_IP=172.26.230.217 && export ROS_MASTER_URI=http://172.26.165.201:11311/ && roslaunch realsense2_camera rs_camera.launch 
       ```
+4. SCP command:
+      scp -r /home/vib2810/diffuse_to_clone/dataset/data/converted_data_block_pick guest@punisher.wifi.local.cmu.edu:/home/guest/vibhakar/diffuse_to_clone/dataset
+
+      Fix the 
+      scp -r guest@punisher.wifi.local.cmu.edu:/home/guest/vibhakar/diffuse_to_clone/logs/models/* /home/vib2810/diffuse_to_clone/logs/models/
+
+
