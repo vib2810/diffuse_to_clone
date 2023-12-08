@@ -27,16 +27,39 @@ from frankapy.proto import PosePositionSensorMessage, CartesianImpedanceSensorMe
 
 sys.path.append("/home/ros_ws/networks") # for torch.load to work
 
+class GripperActuator():
+    gripped = False
+    GRASP_WIDTH = 0.041 # slightly lower than the real grasp width
+    # Gripper with call close_gripper when it is within 0.01m of the GRASP_WIDTH
+    def __init__(self) -> None:
+        pass
+    
+    def actuate_gripper(self, fa, next_gripper, curr_gripper_width):
+        # gripper actuate
+        if (next_gripper > (curr_gripper_width + 0.001)): # if gripper opening
+            self.gripped = False
+            fa.goto_gripper(next_gripper, block=False, speed=0.2)
+        elif (next_gripper - self.GRASP_WIDTH < 0.01) and (not self.gripped): # if not opening and close to GRASP_WIDTH
+            fa.stop_gripper()
+            fa.close_gripper()
+            self.gripped = True
+        elif not self.gripped: # General case
+            fa.goto_gripper(next_gripper, block=False, speed=0.2)
+
 class ModelTester:
     # Constants
-    GOAL_THRESHOLD = 0.05 # TODO: need to define a goal state or condition to end the model testing
-    ACTION_LIMIT_THRESHOLD = 0.6
-    SMALL_NORM_CHANGE_BREAK_THRESHOLD = 1e-5
-    NUM_STEPS = 500
+    USE_GOTO_POSE = False # If true, will use goto_pose instead of publishing to sensor topic
+    TERMINATE_POSE = get_posestamped(np.array([0.5, 0.2, 0.3]),
+                                       np.array([1,0,0,0]))
+    
+    ACTION_LIMIT_THRESHOLD = 0.6 # Safety threshold for actions
+    GOAL_THRESH = 0.05
+    NUM_STEPS = 600
+    
+    # Overwrite DiffusionTrainer params
     ACTION_HORIZON_DIFFUSION = 8
     ACTION_SAMPLER = "ddim"
     DDIM_STEPS = 10
-    USE_GOTO_POSE = True
 
     def __init__(self,
             model_name
@@ -63,6 +86,7 @@ class ModelTester:
             
         self.model.load_model_weights(stored_pt_file["model_weights"])
         self.is_state_based = self.train_params["is_state_based"]
+        self.gripper_actuator = GripperActuator()
 
         # print model hparams (except model_weights)
         for key in self.train_params:
@@ -86,13 +110,11 @@ class ModelTester:
                 transforms.ToPILImage(),
                 transforms.Resize((256,256)),
                 transforms.CenterCrop(224),
-                # transforms.Resize((96,96)),
                 transforms.ToTensor(), # converts to [0,1] and (C,H,W)
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ])
         
         # Initialize sequence buffer with zeoros of size obs_horizon
-        # self.seq_buffer = [np.zeros(self.train_params["obs_dim"])]*self.train_params["obs_horizon"]
         self.seq_buffer = None
         self.prev_joints = self.fa.get_joints()
         
@@ -148,7 +170,7 @@ class ModelTester:
         counter = 0
         while not rospy.is_shutdown():
             # Get curr robot joints, pose and next action
-            next_pose, next_gripper = self.get_next_action()
+            next_pose, next_gripper, curr_gripper_width = self.get_next_action()
             if next_pose is None:
                 break
             
@@ -181,7 +203,7 @@ class ModelTester:
                 self.fa.goto_pose(next_pose_rigid, duration=1)
             
             next_gripper = np.clip(next_gripper, FC.GRIPPER_WIDTH_MIN, FC.GRIPPER_WIDTH_MAX)
-            self.fa.goto_gripper(next_gripper, block=False, speed = 0.2)
+            self.gripper_actuator.actuate_gripper(self.fa, next_gripper, curr_gripper_width)
             
             # Break if counter exceeds num_steps
             counter += 1
@@ -203,7 +225,7 @@ class ModelTester:
 
     def get_next_action(self):
         """
-        Return next action of type (Pose, gripper_width)
+        Return next action of type (Pose, gripper_width, curr_gripper_width)
         """
         # Read current pose and joints
         curr_pose_rigid = self.fa.get_pose()
@@ -221,18 +243,15 @@ class ModelTester:
         self.seq_buffer.append(next_state)
         
         # Break Condition Check
-        # norm_diff = np.linalg.norm(self.prev_joints - curr_joints)
-        # if norm_diff < self.SMALL_NORM_CHANGE_BREAK_THRESHOLD:
-        #     print(f"Break due to small norm change: {norm_diff} < {self.SMALL_NORM_CHANGE_BREAK_THRESHOLD}")
-        #     return None, None
-        # self.prev_joints = curr_joints
+        norm_diff = get_pose_norm(curr_pose, self.TERMINATE_POSE)
+        if norm_diff < self.GOAL_THRESH:
+            print(f"Break due to reaching terminate pose {norm_diff} < {self.GOAL_THRESH}")
+            return None, None, None
+        self.prev_joints = curr_joints
         
         # Get stacked joints
         stacked_input = np.stack(self.seq_buffer, axis=0)
-        print(f"stacked input: {stacked_input}")
         nagent_pos = torch.from_numpy(stacked_input).float().unsqueeze(0).to(self.model.device)
-        # print obs_tensor.shape
-        print(f"nagent_pos: {nagent_pos.shape}")
 
         ### Getting images
         if(self.is_state_based):
@@ -248,11 +267,7 @@ class ModelTester:
             self.img_buffer.append(self.curr_image)
 
             stacked_images = np.stack(self.img_buffer, axis=0)
-            print(f"stacked images input: {stacked_images.shape}")
             nimage = torch.from_numpy(stacked_images).float().unsqueeze(0).to(self.model.device)
-
-            # print nimage
-            print(f"nimage: {nimage.shape}, {nimage}")
         
         # forward pass model to get action
         action = self.model.get_mpc_action(nimage=nimage, nagent_pos=nagent_pos)
@@ -270,12 +285,14 @@ class ModelTester:
         # Check if action is safe
         euclid_dist_xyz = np.sqrt((next_pose.position.x - curr_pose.position.x)**2 + (next_pose.position.y - curr_pose.position.y)**2 + (next_pose.position.z - curr_pose.position.z)**2)
         print(f"euclid_dist_xyz: {euclid_dist_xyz}")
+        print()
+        
         if(euclid_dist_xyz>self.ACTION_LIMIT_THRESHOLD):
             print(f"Break due to action limits {euclid_dist_xyz} > {self.ACTION_LIMIT_THRESHOLD}")
-            return None, None
+            return None, None, None
         
         # Return next action
-        return next_pose, next_gripper
+        return next_pose, next_gripper, curr_gripper
     
 if __name__ == "__main__":
     if len(sys.argv) < 2:

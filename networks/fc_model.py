@@ -137,7 +137,6 @@ class FCTrainer(nn.Module):
         """
         nagent_pos = normalize_data(nagent_pos, self.stats['nagent_pos'])
         naction = self.get_all_actions_normalized(nimage, nagent_pos)
-        print("naction: ", naction)
         naction_unnormalized = unnormalize_data(naction, stats=self.stats['actions']) # (B, action_horizon * action_dim) where action_horizon = 1
         assert naction_unnormalized.shape[0] == 1
         return naction_unnormalized.squeeze(0).cpu().numpy()            

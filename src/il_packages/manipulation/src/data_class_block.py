@@ -28,6 +28,26 @@ EXPERT_RECORD_FREQUENCY = 10
 RESET_SPEED = 3
 Z_PICK = 0.018
 COLLECT_AUDIO = True
+
+class GripperActuator():
+    gripped = False
+    GRASP_WIDTH = 0.041 # slightly lower than the real grasp width
+    # Gripper with call close_gripper when it is within 0.01m of the GRASP_WIDTH
+    def __init__(self) -> None:
+        pass
+    
+    def actuate_gripper(self, fa, next_gripper, curr_gripper_width):
+        # gripper actuate
+        if (next_gripper > (curr_gripper_width + 0.001)): # if gripper opening
+            self.gripped = False
+            fa.goto_gripper(next_gripper, block=False, speed=0.2)
+        elif (next_gripper - self.GRASP_WIDTH < 0.01) and (not self.gripped): # if not opening and close to GRASP_WIDTH
+            fa.stop_gripper()
+            fa.close_gripper()
+            self.gripped = True
+        elif not self.gripped: # General case
+            fa.goto_gripper(next_gripper, block=False, speed=0.2)
+        
 class Data():
     def __init__(self) -> None:
         self.pub = rospy.Publisher(FC.DEFAULT_SENSOR_PUBLISHER_TOPIC, SensorDataGroup, queue_size=1000)
@@ -38,6 +58,7 @@ class Data():
         self.bridge = CvBridge()
         self.got_image = False
         self.got_audio = False
+        self.gripper_actuator = GripperActuator()
 
         rospy.Subscriber('/audio/audio', AudioData, self.audio_callback)
         rospy.Subscriber('/camera/color/image_raw', Image, self.image_callback)
@@ -123,9 +144,8 @@ class Data():
         target_pose.pose.position.y += np.random.normal(0, 0.02)
         return target_pose
     
-    current_toy_state = 0  
-    FINAL_GRIPPER_WIDTH = 0.045 # slightly highter than grasp width
-    GRASP_WIDTH = 0.040 # slightly lower than grasp width
+    current_toy_state = 0
+    FINAL_GRIPPER_WIDTH = 0.045 # gripper width to terminate FSM, between, less than GRASP_WIDTH+0.01
     NORM_DIFF_TOL = 0.03
     Z_ABS_TOL = 0.003
     
@@ -269,7 +289,6 @@ class Data():
             print("Invalid State")
             return None, None
         
-    gripped = False
     def collect_trajectories_joints(self, expt_data_dict):
         self.pick_pose = expt_data_dict["pick_pose"]
         self.place_pose = expt_data_dict["place_pose"]
@@ -380,18 +399,7 @@ class Data():
                 )
                 self.pub.publish(ros_msg)
 
-                # gripper actuate
-                if (next_gripper > (curr_gripper_width + 0.008)):
-                    self.gripped = False
-                if (next_gripper - self.GRASP_WIDTH < 0.01) and (not self.gripped):
-                    # self.fa.goto_gripper(width = FC.GRIPPER_WIDTH_MIN, 
-                    #                      grasp=True, block=False, force = FC.GRIPPER_MAX_FORCE)
-                    # print("calling with grasp")
-                    self.fa.stop_gripper()
-                    self.fa.close_gripper()
-                    self.gripped = True
-                elif not self.gripped:
-                    self.fa.goto_gripper(next_gripper, block=False, speed=0.2)
+                self.gripper_actuator.actuate_gripper(self.fa, next_gripper, curr_gripper_width)
                 counter += 1
                 rate.sleep()
             
