@@ -18,7 +18,7 @@ sys.path.append("/home/ros_ws/networks") # for torch.load to work
 
 
 class ModelEvaluator:
-    ACTION_HORIOZON = 8
+    ACTION_HORIOZON = 1
     DDIM_STEPS = 10
     def __init__(self,
             model_name
@@ -110,14 +110,14 @@ class ModelEvaluator:
                 if torch.sum(nagent_pos[bidx, 0]) == 0:
                     counter += 1
             print("Num data points with first seq all zeros: ", counter)
-            # print("Input to eval: nagent_pos", nagent_pos)
-            # print("Input to eval: naction", naction)
-            # print("Output of eval: model_actions", model_actions)
+            print("Input to eval: nagent_pos", nagent_pos)
+            print("Input to eval: naction", naction)
+            print("Output of eval: model_actions", model_actions)
             
             # unnormalized printing
-            # print("Input to eval unnorm: nagent_pos", unnormalize_data(nagent_pos, self.model.stats['nagent_pos']))
-            # print("Input to eval unnorm: naction", unnormalize_data(naction, self.model.stats['actions']))
-            # print("Output of eval unnorm: model_actions", unnormalize_data(model_actions, self.model.stats['actions']))
+            print("Input to eval unnorm: nagent_pos", unnormalize_data(nagent_pos, self.model.stats['nagent_pos']))
+            print("Input to eval unnorm: naction", unnormalize_data(naction, self.model.stats['actions']))
+            print("Output of eval unnorm: model_actions", unnormalize_data(model_actions, self.model.stats['actions']))
             total_loss += loss*B    
             max_loss = max(max_loss, loss)
         
@@ -129,7 +129,7 @@ class ModelEvaluator:
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         print("Usage: please provide model_name as node argument")
-        print("Example: rosrun manipulation test_network.py <model_name> <dataset_name>")
+        print("Example: rosrun manipulation network_evaluator.py <model_name> <dataset_name>")
         sys.exit()
 
     model_name = sys.argv[1]

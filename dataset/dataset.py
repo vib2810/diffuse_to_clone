@@ -212,3 +212,7 @@ if __name__=="__main__":
         print("size of actions: ", data['actions'].shape)
         if not dataset.is_state_based:
             print("size of image: ", data['image'].shape)
+        
+        # print the image input
+        print("Image input: ", data['image'])
+        break

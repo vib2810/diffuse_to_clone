@@ -213,10 +213,10 @@ class DiffusionTrainer(nn.Module):
         """
         # Compute next pred_horizon actions and store the next action_horizon actions in a list
         if len(self.mpc_actions) == 0:          
-            nagent_pos = normalize_data(nagent_pos, self.stats['nagent_pos'],mode='minmax')
+            nagent_pos = normalize_data(nagent_pos, self.stats['nagent_pos'])
             naction = self.get_all_actions_normalized(nimage, nagent_pos, sampler=sampler)
             naction_unnormalized = naction
-            naction_unnormalized = unnormalize_data(naction, stats=self.stats['actions'],mode='minmax') # (B, pred_horizon, action_dim)
+            naction_unnormalized = unnormalize_data(naction, stats=self.stats['actions']) # (B, pred_horizon, action_dim)
             
             # append the next action_horizon actions to the list
             for i in range(self.action_horizon):

@@ -42,3 +42,8 @@ Diffusion Models for Imitation Learning
       ```
 4. SCP command:
       scp -r /home/vib2810/diffuse_to_clone/dataset/data/converted_data_block_pick guest@punisher.wifi.local.cmu.edu:/home/guest/vibhakar/diffuse_to_clone/dataset
+
+      Fix the 
+      scp -r guest@punisher.wifi.local.cmu.edu:/home/guest/vibhakar/diffuse_to_clone/logs/models/* /home/vib2810/diffuse_to_clone/logs/models/
+
+

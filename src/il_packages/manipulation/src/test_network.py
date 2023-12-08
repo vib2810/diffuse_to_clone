@@ -62,6 +62,7 @@ class ModelTester:
             self.model.initialize_mpc_action()
             
         self.model.load_model_weights(stored_pt_file["model_weights"])
+        self.is_state_based = self.train_params["is_state_based"]
 
         # print model hparams (except model_weights)
         for key in self.train_params:
@@ -79,7 +80,7 @@ class ModelTester:
 
         # Initialize image subscriber
         self.img_sub = rospy.Subscriber('camera/color/image_raw', Image, self.image_callback, queue_size=1)
-        self.img_buffer = [torch.zeros((3,224,224))]*self.train_params["obs_horizon"]
+        self.img_buffer = None
         self.curr_image = None
         self.image_transforms = transforms.Compose([
                 transforms.ToPILImage(),
@@ -219,7 +220,7 @@ class ModelTester:
         self.seq_buffer.pop(0)
         self.seq_buffer.append(next_state)
         
-        # Append norm diff to prev_joint_norm_diffs 
+        # Break Condition Check
         # norm_diff = np.linalg.norm(self.prev_joints - curr_joints)
         # if norm_diff < self.SMALL_NORM_CHANGE_BREAK_THRESHOLD:
         #     print(f"Break due to small norm change: {norm_diff} < {self.SMALL_NORM_CHANGE_BREAK_THRESHOLD}")
@@ -234,21 +235,25 @@ class ModelTester:
         print(f"nagent_pos: {nagent_pos.shape}")
 
         ### Getting images
-        if(self.train_params["is_state_based"]):
+        if(self.is_state_based):
             nimage = None
         else:
-            if self.curr_image is not None:
-                self.img_buffer.pop(0)
-                self.img_buffer.append(self.curr_image)
-                
-            else:
-                rospy.logerr("Image buffer is empty. Using zeros")
+            if self.curr_image == None:
+                rospy.logerr("No image received. Exiting")
                 sys.exit()
+            if self.img_buffer is None:
+                self.img_buffer = [self.curr_image]*self.train_params["obs_horizon"]
+                
+            self.img_buffer.pop(0)
+            self.img_buffer.append(self.curr_image)
 
             stacked_images = np.stack(self.img_buffer, axis=0)
-            print(f"stacked images input: {stacked_images}")
+            print(f"stacked images input: {stacked_images.shape}")
             nimage = torch.from_numpy(stacked_images).float().unsqueeze(0).to(self.model.device)
 
+            # print nimage
+            print(f"nimage: {nimage.shape}, {nimage}")
+        
         # forward pass model to get action
         action = self.model.get_mpc_action(nimage=nimage, nagent_pos=nagent_pos)
         
