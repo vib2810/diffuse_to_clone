@@ -10,8 +10,8 @@
  <!-- arecord -l will show available input devices, use the car number as
       the first number and the subdevice number as the second in a string
       like hw:1,0 -->
-  <!-- <include file="$(find audio_capture)/launch/capture.launch">
+  <include file="$(find audio_capture)/launch/capture.launch">
     <arg name="device" value="hw:2,0"/>
-  </include>                                                                                                                                       -->
+  </include>                                                                                                                                      
   
 </launch>
