@@ -27,7 +27,7 @@ from frankapy.proto import PosePositionSensorMessage, ShouldTerminateSensorMessa
 EXPERT_RECORD_FREQUENCY = 10
 RESET_SPEED = 3
 Z_PICK = 0.018
-COLLECT_AUDIO = False
+COLLECT_AUDIO = True
 class Data():
     def __init__(self) -> None:
         self.pub = rospy.Publisher(FC.DEFAULT_SENSOR_PUBLISHER_TOPIC, SensorDataGroup, queue_size=1000)
@@ -37,6 +37,7 @@ class Data():
         self.audio_data = [0]*self.audio_buffer_size
         self.bridge = CvBridge()
         self.got_image = False
+        self.got_audio = False
 
         rospy.Subscriber('/audio/audio', AudioData, self.audio_callback)
         rospy.Subscriber('/camera/color/image_raw', Image, self.image_callback)
@@ -45,6 +46,8 @@ class Data():
         """
         Maintain an audio buffer of size 32000 (last ~2 seconds of audio)
         """
+        if not self.got_audio:
+            self.got_audio = True
         self.audio_data.extend(data.data)
         if len(self.audio_data) > self.audio_buffer_size:
             self.audio_data = self.audio_data[-self.audio_buffer_size:]
@@ -272,12 +275,16 @@ class Data():
         self.place_pose = expt_data_dict["place_pose"]
         expt_folder = '/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"]
         expt_img_folder = '/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/Images'
+        expt_audio_folder = '/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/Audio'
 
         if not os.path.exists(expt_folder):
             os.makedirs(expt_folder)
 
         if not os.path.exists(expt_img_folder):
             os.makedirs(expt_img_folder)
+            
+        if not os.path.exists(expt_audio_folder) and COLLECT_AUDIO:
+            os.makedirs(expt_audio_folder)
         
         if not self.got_image:
             # wait for 3 seconds to get image
@@ -285,6 +292,15 @@ class Data():
             rospy.sleep(3)
         if self.got_image == False:
             print("No image received")
+            sys.exit(0)
+            
+        if not self.got_audio and COLLECT_AUDIO:
+            # wait for 3 seconds to get audio
+            print("Waiting for audio")
+            rospy.sleep(3)
+            
+        if self.got_audio == False and COLLECT_AUDIO:
+            print("No audio received")
             sys.exit(0)
 
         if not os.path.exists(expt_folder):

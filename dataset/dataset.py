@@ -185,7 +185,7 @@ class DiffusionDataset(torch.utils.data.Dataset):
 if __name__=="__main__":
     # Just for testing
     dataset = "converted_data_block_pick"
-    dataset_path = '/home/ros_ws/dataset/data/'+dataset+'/eval'
+    dataset_path = '/home/ros_ws/dataset/data/'+dataset+'/train'
     assert os.path.exists(dataset_path), "Dataset path does not exist"
     dataset = DiffusionDataset(dataset_path=dataset_path,
                                  pred_horizon=1,
