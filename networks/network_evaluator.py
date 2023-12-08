@@ -66,8 +66,8 @@ class ModelEvaluator:
         ### Create dataloader
         self.eval_dataloader = torch.utils.data.DataLoader(
             eval_dataset,
-            batch_size=self.train_params['batch_size'],
-            num_workers=self.train_params['num_workers'],
+            batch_size=1,
+            num_workers=1,
             shuffle=False,
             # accelerate cpu-gpu transfer
             pin_memory=True,
@@ -110,14 +110,19 @@ class ModelEvaluator:
                 if torch.sum(nagent_pos[bidx, 0]) == 0:
                     counter += 1
             print("Num data points with first seq all zeros: ", counter)
-            print("Input to eval: nagent_pos", nagent_pos)
-            print("Input to eval: naction", naction)
-            print("Output of eval: model_actions", model_actions)
+            # print("Input to eval: nagent_pos", nagent_pos)
+            # print("Input to eval: naction", naction)
+            # print("Output of eval: model_actions", model_actions)
             
             # unnormalized printing
-            print("Input to eval unnorm: nagent_pos", unnormalize_data(nagent_pos, self.model.stats['nagent_pos']))
-            print("Input to eval unnorm: naction", unnormalize_data(naction, self.model.stats['actions']))
-            print("Output of eval unnorm: model_actions", unnormalize_data(model_actions, self.model.stats['actions']))
+            model_actions_unnorm = unnormalize_data(model_actions, self.model.stats['actions']).squeeze()
+            if model_actions_unnorm[0]<0.5:
+                print("Input to eval unnorm: nagent_pos", unnormalize_data(nagent_pos, self.model.stats['nagent_pos']))
+                print("Input to eval unnorm: naction", unnormalize_data(naction, self.model.stats['actions']))
+                print("Output of eval unnorm: model_actions", unnormalize_data(model_actions, self.model.stats['actions']))
+            else:
+                print(model_actions_unnorm[0])
+            print()
             total_loss += loss*B    
             max_loss = max(max_loss, loss)
         
