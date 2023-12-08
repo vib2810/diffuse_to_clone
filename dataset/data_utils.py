@@ -307,3 +307,54 @@ def get_stacked_samples(observations, actions,
     
     # (batch_size, seq_len, ob_dim), (batch_size, ac_seq_len, ac_dim), (batch_size, seq_len, 2)
     return np.stack(stacked_observations), np.stack(stacked_actions), np.stack(stacked_image_data_info)
+
+def get_stacked_samples_lstm(observations, actions, 
+                        image_data_info,
+                        terminals, lstm_seq_len, ob_seq_len, ac_seq_len,
+                        batch_size, start_idxs=None):
+    """
+    Observations: (N, ob_dim)
+    Actions: (N, ac_dim)
+    Image_data_info: (N, 2)
+    Terminals: (N, 1)
+    Returns a batch of stacked samples
+        - Observations: (batch_size, lstm_seq_len, ob_seq_len, ob_dim)
+        - Actions: (batch_size, lstm_seq_len, ac_seq_len, ac_dim)
+    Padding:
+        - Observations: zero padding at the start
+        - Actions: last action padding at the end
+    """
+    if start_idxs is None:
+        start_idxs = np.random.randint(0, len(observations) - ob_seq_len - ac_seq_len, batch_size)
+        
+    stacked_lstm_observations = []
+    stacked_lstm_actions = []
+    stacked_lstm_image_data_info = []
+        
+    ### TODO: For loop is not needed here!
+    for start_idx in start_idxs:
+        stacked_observations = []
+        stacked_actions = []
+        stacked_image_data_info = []
+
+        for lstm_idx in range(lstm_seq_len):
+            obs = get_stacked_sample(observations, terminals, ob_seq_len, start_idx + lstm_idx)
+            ac = get_stacked_action(actions, terminals, ac_seq_len, start_idx + lstm_idx + ob_seq_len - 1)
+            stacked_observations.append(obs)
+            stacked_actions.append(ac)
+            
+            if image_data_info is not None:
+                im = get_stacked_sample(image_data_info, terminals, ob_seq_len, start_idx + lstm_idx)
+                stacked_image_data_info.append(im)    
+
+        stacked_lstm_observations.append(stacked_observations)
+        stacked_lstm_actions.append(stacked_actions)
+        stacked_lstm_image_data_info.append(stacked_image_data_info)
+        
+    if image_data_info is None:
+        return np.stack(stacked_lstm_observations), np.stack(stacked_lstm_actions), None
+    
+    # (batch_size, lstm_len,seq_len, ob_dim), (batch_size, lstm_len, ac_seq_len, ac_dim), (batch_size, lstm_len, seq_len, 2)
+    return np.stack(stacked_lstm_observations), np.stack(stacked_lstm_actions), np.stack(stacked_lstm_image_data_info)
+
+

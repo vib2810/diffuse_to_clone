@@ -178,6 +178,166 @@ class DiffusionDataset(torch.utils.data.Dataset):
             nsample['image'] = image_data
             
         return nsample
+    
+class LSTMDataset(torch.utils.data.Dataset):
+    """ Class for loading dataset for LSTM baseline. This implementation is a little different than original authors.
+    We also stack joints states based on obs_horizon while author's didn't!"""
+    def __init__(self,
+                 dataset_path: str,
+                 pred_horizon: int,
+                 obs_horizon: int,
+                 action_horizon: int,
+                 lstm_cells_length: int,
+                 is_state_based: bool = True):
+        
+        assert pred_horizon == 1, "LSTM only supports pred_horizon=1"
+        assert action_horizon == 1, "LSTM only supports action_horizon=1"
+        assert lstm_cells_length > 1, "LSTM only supports lstm_cells_length > 1"
+        
+        self.dataset_path = dataset_path
+        self.is_state_based = is_state_based
+        
+        # Assert that there is an Images folder if is_state_based==False
+        if self.is_state_based==False:
+            assert os.path.exists(os.path.join(dataset_path, "Images")), "Images folder does not exist"    
+
+        # read all pkl files one by one
+        self.files = [os.path.join(dataset_path, f) for f in os.listdir(dataset_path) if f.endswith('.pkl')]
+        train_data = initialize_data(is_state_based=is_state_based)
+
+        
+        for idx, file in enumerate(self.files):
+            dataset_root = pickle.load(open(file, 'rb'))
+            state_data = parse_states(dataset_root['observations'])
+            actions_data = parse_actions(dataset_root['actions'], mode='xyz')
+            
+            # store the idx of the file and the idx of the datapoint within the file
+            if self.is_state_based==False:
+                trajectory_idx = int(file.split("/")[-1].split("_")[-1].split(".")[0])
+                image_file_idx = np.array([trajectory_idx]*len(state_data))
+                image_data_idx = np.arange(len(state_data))
+                image_data_info = np.stack((image_file_idx, image_data_idx), axis=1) # shape (N,2)
+
+            episode_length = len(state_data)
+                
+            terminals = np.concatenate((np.zeros(episode_length-1), np.ones(1))) # 1 if episode ends, 0 otherwise
+            
+            # Store in global dictionary for all data
+            train_data['nagent_pos'].extend(state_data)
+            train_data['actions'].extend(actions_data)
+            train_data['terminals'].extend(terminals)
+            
+            if self.is_state_based==False:
+                train_data['image_data_info'].extend(image_data_info)
+
+        # print train_data dict stats
+        train_data['nagent_pos'] = np.array(train_data['nagent_pos']) # shape (N,obs_dim)
+        train_data['actions'] = np.array(train_data['actions']) # shape (N,action_dim)
+        train_data['terminals'] = np.array(train_data['terminals']) # shape (N,)
+        
+        if self.is_state_based==False:
+            train_data['image_data_info'] = np.array(train_data['image_data_info']) # shape (N,2)
+
+        self.state_dim = train_data['nagent_pos'].shape[1]
+        self.action_dim = train_data['actions'].shape[1]
+        
+        # compute statistics and normalize joint states and actions to [-1,1]
+        stats = dict()
+        normalized_train_data = dict()
+        data_to_normalize = ['nagent_pos', 'actions']
+
+        for key, data in train_data.items():
+            if key in data_to_normalize:
+                stats[key] = get_data_stats(data)
+                normalized_train_data[key] = normalize_data(data, stats[key]).astype(np.float32)
+                normalized_train_data[key] = data.astype(np.float32)
+            else:
+                normalized_train_data[key] = np.array(data).astype(np.float32)
+        
+        # transforms for image data
+        if self.is_state_based==False:
+            self.image_transforms = transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.Resize((256,256)),
+                transforms.CenterCrop(224),
+                # transforms.Resize((96,96)), # they used 96x96 but we avoid it!
+                transforms.ToTensor(), # converts to [0,1] and (C,H,W)
+                transforms.ColorJitter(brightness=0.05, hue=0.05),
+                transforms.RandomAffine(degrees=5, translate = (0.05, 0.05), scale = (0.95, 1.05)),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ])
+
+        self.stats = stats
+        self.normalized_train_data = normalized_train_data
+        self.pred_horizon = pred_horizon
+        self.action_horizon = action_horizon
+        self.obs_horizon = obs_horizon
+        self.lstm_len = lstm_cells_length
+
+    def __len__(self):
+        # return len(self.indices)
+        return self.normalized_train_data['nagent_pos'].shape[0] - self.obs_horizon - self.pred_horizon + 1
+
+    def print_size(self, string):
+        print("Dataset {}".format(string))
+        ### Store some stats about training data.
+        print_data_dict_shapes(self.normalized_train_data)
+    
+    def get_images(self, image_data_info):
+        """
+        Input: image_data_info: shape (N,2) np array
+        Output: image_data: shape (N,3,224,224)
+        """
+        # Prepare an array to hold the images in the original order
+        image_data_lstm = [None] * image_data_info.shape[0]
+
+        for t in self.lstm_len:
+            image_data = [None] * image_data_info.shape[1]
+            for idx in range(len(image_data_info)):
+                file_idx = int(image_data_info[idx, 0])
+                data_idx = int(image_data_info[idx, 1])
+                
+                file_path = os.path.join(self.dataset_path, "Images", str(file_idx), str(data_idx)+".png")
+                image = cv2.imread(file_path) # shape (480, 640, 3)
+                
+                # Transform each image individually
+                image = self.image_transforms(image) # shape (3, 224, 224)
+                image_data[idx] = image
+            image_data_lstm[t] = torch.stack(image_data, dim=0) # shape (seq_len,3,224,224)
+
+        # Stack the transformed images into a batch
+        image_data_lstm = torch.stack(image_data_lstm, dim=0) # shape (lstm_len,seq_len,3,224,224).
+
+        return image_data_lstm
+    
+    def __getitem__(self, idx):
+        nsample = {}
+        stacked_obs, stacked_action, stacked_image_data_info = get_stacked_samples_lstm(
+            observations=self.normalized_train_data['nagent_pos'],
+            actions=self.normalized_train_data['actions'],
+            image_data_info=None if self.is_state_based else self.normalized_train_data['image_data_info'],
+            terminals=self.normalized_train_data['terminals'],
+            ob_seq_len=self.obs_horizon,
+            ac_seq_len=self.pred_horizon,
+            batch_size=1,
+            start_idxs=[idx]
+        ) # stacked_image_data_info is None if is_state_based==True
+
+        # convert to tensors
+        nsample['nagent_pos'] = torch.from_numpy(stacked_obs[0].astype(np.float32)) # shape (lstm_len,obs_horizon, state_dim)
+        nsample['actions'] = torch.from_numpy(stacked_action[0].astype(np.float32)) # shape (lstm_len,pred_horizon, action_dim)
+        
+        # Processing for Image
+        # stacked_image_data_info shape (1, seq_len, 2)
+        if not self.is_state_based:            
+            # get data for all images required
+            stacked_image_data_info = stacked_image_data_info[0] # shape (lstm_len,seq_len, 2)
+            image_data = self.get_images(stacked_image_data_info) # shape (1,lstm_len, seq_len, 3, 224, 224)
+            
+            # add to nsample
+            nsample['image'] = image_data # shape (lstm_len, seq_len, 3, 224, 224)
+            
+        return nsample
 
 
 if __name__=="__main__":

@@ -1,8 +1,8 @@
 import os
 import shutil
 
-folder_path = "/home/vib2810/diffuse_to_clone/logs/recorded_trajectories/second_vision_collect"
-output_folder_path = "/home/vib2810/diffuse_to_clone/dataset/data/converted_data_block_pick"
+folder_path = "/home/abhinav/diffuse_to_clone/logs/recorded_trajectories/test_data"
+output_folder_path = "/home/abhinav/diffuse_to_clone/dataset/data/converted_data_block_pick"
 
 total_num_of_files = len(sorted(os.listdir(folder_path)))
 split_ratio = 0.8
