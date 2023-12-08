@@ -49,6 +49,8 @@ class DiffusionDataset(torch.utils.data.Dataset):
 
         # read all pkl files one by one
         self.files = [os.path.join(dataset_path, f) for f in os.listdir(dataset_path) if f.endswith('.pkl')]
+        # sort files in ascending order
+        self.files.sort(key=lambda f: int(''.join(filter(str.isdigit, f))))
         train_data = initialize_data(is_state_based=is_state_based)
 
         
@@ -183,7 +185,7 @@ class DiffusionDataset(torch.utils.data.Dataset):
 if __name__=="__main__":
     # Just for testing
     dataset = "converted_data_block_pick"
-    dataset_path = '/home/ros_ws/dataset/data/'+dataset+'/train'
+    dataset_path = '/home/ros_ws/dataset/data/'+dataset+'/eval'
     assert os.path.exists(dataset_path), "Dataset path does not exist"
     dataset = DiffusionDataset(dataset_path=dataset_path,
                                  pred_horizon=1,
@@ -195,8 +197,8 @@ if __name__=="__main__":
     eval_dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=128,
-        num_workers=4,
-        shuffle=True,
+        num_workers=1,
+        shuffle=False,
         # accelerate cpu-gpu transfer
         pin_memory=True,
         # don't kill worker process afte each epoch

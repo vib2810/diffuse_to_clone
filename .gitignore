@@ -1,6 +1,7 @@
 .vscode
 *.zip
 logs/**
+!logs/.gitkeep
 bags/**
 
 # Byte-compiled / optimized / DLL files

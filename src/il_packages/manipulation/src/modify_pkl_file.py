@@ -1,11 +1,22 @@
 import os
 import shutil
 
-folder_path = "/home/vib2810/diffuse_to_clone/logs/recorded_trajectories/second_vision_collect"
-output_folder_path = "/home/vib2810/diffuse_to_clone/dataset/data/converted_data_block_pick"
+folder_path = "/home/vib2810/diffuse_to_clone/logs/recorded_trajectories/vision_new_camera"
+output_folder_path = "/home/vib2810/diffuse_to_clone/dataset/data/vision_new_camera"
 
 total_num_of_files = len(sorted(os.listdir(folder_path)))
 split_ratio = 0.8
+
+# make the output_folder_path
+os.makedirs(output_folder_path, exist_ok=True)
+
+# make train and eval folders:
+os.makedirs(os.path.join(output_folder_path, "train"), exist_ok=True)
+os.makedirs(os.path.join(output_folder_path, "eval"), exist_ok=True)
+
+# make the train and eval and images folder for output_folder_path
+os.makedirs(os.path.join(output_folder_path, "train/Images"), exist_ok=True)
+os.makedirs(os.path.join(output_folder_path, "eval/Images"), exist_ok=True)
 
 for file_name in sorted(os.listdir(folder_path)):
   if file_name.endswith(".pkl"):
