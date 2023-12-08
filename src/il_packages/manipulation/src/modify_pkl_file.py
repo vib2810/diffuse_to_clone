@@ -1,8 +1,8 @@
 import os
 import shutil
 
-folder_path = "/home/vib2810/diffuse_to_clone/logs/recorded_trajectories/vision_new_camera"
-output_folder_path = "/home/vib2810/diffuse_to_clone/dataset/data/vision_new_camera"
+folder_path = "/home/ros_ws/logs/recorded_trajectories/vision_new_camera"
+output_folder_path = "/home/ros_ws/dataset/data/vision_new_camera"
 
 total_num_of_files = len(sorted(os.listdir(folder_path)))
 split_ratio = 0.8
