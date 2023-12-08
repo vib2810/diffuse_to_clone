@@ -12,7 +12,7 @@ MIN_RELEVANT_FREQUENCY = 0
 # Ignore frequency components above this value (in Hz)
 MAX_RELEVANT_FREQUENCY = 12500
 
-def process_audio(audio_data, sample_rate=16000, num_freq_bins=100, num_time_bins=57, check_valid=True):
+def process_audio(audio_data, sample_rate=16000, num_freq_bins=100, num_time_bins=57, check_valid=False):
   '''Computes and processes a binned spectrogram from a raw audio (unclipped and unpadded) signal array.
 
   Args:
@@ -59,7 +59,7 @@ def compute_spectrogram(audio_data, sample_rate, num_freq_bins, num_time_bins):
   f, t, Sxx = signal.spectrogram(audio_data, sample_rate, scaling='spectrum', return_onesided=True)
   Sxx = np.array(Sxx)
   # print(f"Shape of Sxx: {Sxx.shape}")
-  print(f"Min value: {np.min(Sxx)}, max value: {np.max(Sxx)}")
+  # print(f"Min value: {np.min(Sxx)}, max value: {np.max(Sxx)}")
 
   # plot spectrogram Sxx
   # plt.pcolormesh(t, f, Sxx)

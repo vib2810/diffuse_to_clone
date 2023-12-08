@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from audio_common_msgs.msg import AudioData
-from preprocess_audio import process_audio
+from dataset.preprocess_audio import process_audio
 
 class Audio:
     def __init__(self):

@@ -14,6 +14,7 @@ import cv2
 import time
 import sys
 from data_utils import *
+from preprocess_audio import process_audio
 from collections import OrderedDict
 from torchvision import transforms
 
@@ -38,14 +39,18 @@ class DiffusionDataset(torch.utils.data.Dataset):
                  pred_horizon: int,
                  obs_horizon: int,
                  action_horizon: int,
-                 is_state_based: bool = True):
+                 is_state_based: bool = True,       # if False, then use image 
+                 is_audio_based: bool = False):     # if True, then use audio
         
         self.dataset_path = dataset_path
         self.is_state_based = is_state_based
         
         # Assert that there is an Images folder if is_state_based==False
         if self.is_state_based==False:
-            assert os.path.exists(os.path.join(dataset_path, "Images")), "Images folder does not exist"    
+            assert os.path.exists(os.path.join(dataset_path, "Images")), "Images folder does not exist"   
+
+        if self.is_audio_based==True:
+            assert os.path.exists(os.path.join(dataset_path, "Audio")), "Audio folder does not exist" 
 
         # read all pkl files one by one
         self.files = [os.path.join(dataset_path, f) for f in os.listdir(dataset_path) if f.endswith('.pkl')]
@@ -66,6 +71,12 @@ class DiffusionDataset(torch.utils.data.Dataset):
                 image_data_idx = np.arange(len(state_data))
                 image_data_info = np.stack((image_file_idx, image_data_idx), axis=1) # shape (N,2)
 
+            if self.is_audio_based==True:
+                trajectory_idx = int(file.split("/")[-1].split("_")[-1].split(".")[0])
+                audio_file_idx = np.array([trajectory_idx]*len(state_data))
+                audio_data_idx = np.arange(len(state_data))
+                audio_data_info = np.stack((audio_file_idx, audio_data_idx), axis=1) # shape (N,2)
+
             episode_length = len(state_data)
                 
             terminals = np.concatenate((np.zeros(episode_length-1), np.ones(1))) # 1 if episode ends, 0 otherwise
@@ -78,6 +89,9 @@ class DiffusionDataset(torch.utils.data.Dataset):
             if self.is_state_based==False:
                 train_data['image_data_info'].extend(image_data_info)
 
+            if self.is_audio_based==True:
+                train_data['audio_data_info'].extend(audio_data_info)
+
         # print train_data dict stats
         train_data['nagent_pos'] = np.array(train_data['nagent_pos']) # shape (N,obs_dim)
         train_data['actions'] = np.array(train_data['actions']) # shape (N,action_dim)
@@ -85,6 +99,9 @@ class DiffusionDataset(torch.utils.data.Dataset):
         
         if self.is_state_based==False:
             train_data['image_data_info'] = np.array(train_data['image_data_info']) # shape (N,2)
+
+        if self.is_audio_based==True:
+            train_data['audio_data_info'] = np.array(train_data['audio_data_info']) # shape (N,2)
 
         self.state_dim = train_data['nagent_pos'].shape[1]
         self.action_dim = train_data['actions'].shape[1]
@@ -151,12 +168,38 @@ class DiffusionDataset(torch.utils.data.Dataset):
 
         return image_data
     
+    def get_audio(self, audio_data_info):
+        """
+        Input: audio_data_info: shape (N,2) np array
+        Output: audio_data: shape (N,57,100)
+        """
+        # Prepare an array to hold the audio in the original order
+        audio_data = [None] * len(audio_data_info)
+
+        for idx in range(len(audio_data_info)):
+            file_idx = int(audio_data_info[idx, 0])
+            data_idx = int(audio_data_info[idx, 1])
+            
+            file_path = os.path.join(self.dataset_path, "Audio", str(file_idx), str(data_idx)+".npy")
+            audio = np.load(file_path) # shape (32000, 1)
+            print("Shape of audio: ", audio.shape)
+
+            # Process each audio individually
+            audio = process_audio(audio, sample_rate=16000, num_freq_bins=100, num_time_bins=57) # shape (57, 100)
+            audio_data[idx] = audio
+
+        # Stack the processed audio into a batch
+        audio_data = torch.stack(audio_data, dim=0) # shape (N,57,100)
+
+        return audio_data
+    
     def __getitem__(self, idx):
         nsample = {}
-        stacked_obs, stacked_action, stacked_image_data_info = get_stacked_samples(
+        stacked_obs, stacked_action, stacked_image_data_info, stacked_audio_data_info = get_stacked_samples(
             observations=self.normalized_train_data['nagent_pos'],
             actions=self.normalized_train_data['actions'],
             image_data_info=None if self.is_state_based else self.normalized_train_data['image_data_info'],
+            audio_data_info=None if self.is_audio_based==False else self.normalized_train_data['audio_data_info'],
             terminals=self.normalized_train_data['terminals'],
             ob_seq_len=self.obs_horizon,
             ac_seq_len=self.pred_horizon,
@@ -174,9 +217,19 @@ class DiffusionDataset(torch.utils.data.Dataset):
             # get data for all images required
             stacked_image_data_info = stacked_image_data_info[0] # shape (seq_len, 2)
             image_data = self.get_images(stacked_image_data_info) # shape (1, seq_len, 3, 224, 224)
-            
+
             # add to nsample
             nsample['image'] = image_data
+        
+        # Processing for Audio
+        # stacked_audio_data_info shape (1, seq_len, 2)
+        if self.is_audio_based==True:
+            # get data for all audio required
+            stacked_audio_data_info = stacked_audio_data_info[0] # shape (seq_len, 2)
+            audio_data = self.get_audio(stacked_audio_data_info) # shape (1, seq_len, 57, 100)
+            
+            # add to nsample
+            nsample['audio'] = audio_data            
             
         return nsample
 
@@ -189,7 +242,9 @@ if __name__=="__main__":
     dataset = DiffusionDataset(dataset_path=dataset_path,
                                  pred_horizon=1,
                                  obs_horizon=2,
-                                 action_horizon=1, is_state_based=False)
+                                 action_horizon=1, 
+                                 is_state_based=False,
+                                 is_audio_based=True)
     
     # iterate over the dataset and print shapes of each element
     ### Create dataloader
@@ -211,6 +266,8 @@ if __name__=="__main__":
         print("size of actions: ", data['actions'].shape)
         if not dataset.is_state_based:
             print("size of image: ", data['image'].shape)
+        if dataset.is_audio_based==True:
+            print("size of audio: ", data['audio'].shape)
         
         # print the image input
         print("Image input: ", data['image'])
