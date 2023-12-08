@@ -15,5 +15,5 @@ docker run --privileged --rm -it \
     -v "/etc/timezone:/etc/timezone:ro" \
     -v "/etc/localtime:/etc/localtime:ro" \
     -v "/dev:/dev" \
-    --gpus all \
     diffusion bash
+    # --gpus all \
