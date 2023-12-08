@@ -212,15 +212,19 @@ def get_stacked_sample(observations, terminals, seq_len, start_idx):
     This functions puts zero padding in the start if there is a terminal state in between!
     """
     end_idx = start_idx + seq_len
-    # check if there is a terminal state between start and end
+    # check if there is a terminal state between start and end, if yes then shift the start_idx
+    # dataloader repeats the first observation for missing_context times in such cases
     for idx in range(start_idx, end_idx - 1):
         if terminals[idx]:
             start_idx = idx + 1
     missing_context = seq_len - (end_idx - start_idx)
     
-    # if zero padding is needed for missing context
     if start_idx < 0 or missing_context > 0:
-        frames = [np.zeros_like(observations[0])] * missing_context
+        # frames = [np.zeros_like(observations[0])] * missing_context
+        frames = []
+        # repeat the first observation for missing_context times
+        for idx in range(missing_context):
+            frames.append(observations[start_idx])
         for idx in range(start_idx, end_idx):
             frames.append(observations[idx])
         frames = np.stack(frames)
@@ -285,7 +289,6 @@ def get_stacked_samples(observations, actions,
         if image_data_info is not None:
             im = get_stacked_sample(image_data_info, terminals, ob_seq_len, start_idx)
             stacked_image_data_info.append(im)
-        
         
     if image_data_info is None:
         return np.stack(stacked_observations), np.stack(stacked_actions), None

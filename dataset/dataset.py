@@ -98,7 +98,6 @@ class DiffusionDataset(torch.utils.data.Dataset):
             if key in data_to_normalize:
                 stats[key] = get_data_stats(data)
                 normalized_train_data[key] = normalize_data(data, stats[key]).astype(np.float32)
-                normalized_train_data[key] = data.astype(np.float32)
             else:
                 normalized_train_data[key] = np.array(data).astype(np.float32)
         
