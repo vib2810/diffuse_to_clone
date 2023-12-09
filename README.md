@@ -46,6 +46,8 @@ Diffusion Models for Imitation Learning
             scp -r /home/vib2810/diffuse_to_clone/dataset/data/vision_new_camera guest@punisher.wifi.local.cmu.edu:/home/guest/vibhakar/diffuse_to_clone/dataset
          - Transfer only new files (requires to run bash claim_files.sh on punisher)
             rsync -avz --ignore-existing /home/vib2810/diffuse_to_clone/dataset/data/vision_new_camera guest@punisher.wifi.local.cmu.edu:/home/guest/vibhakar/diffuse_to_clone/dataset/data/
+         - Auxilio Brain
+            rsync -avz --ignore-existing /home/vib2810/diffuse_to_clone/dataset/data/vision_new_camera abhinav@172.26.73.171:/home/abhinav/Desktop/diffuse_to_clone/dataset/data/
 
       - Transfer Models from Punisher to Local
             - scp -r guest@punisher.wifi.local.cmu.edu:/home/guest/vibhakar/diffuse_to_clone/logs/models/* /home/vib2810/diffuse_to_clone/logs/models/
