@@ -47,12 +47,11 @@ class DiffusionTrainer(nn.Module):
         self.num_ddim_iters = train_params["num_ddim_iters"]
         self.num_epochs = train_params["num_epochs"]
         self.lr = train_params["learning_rate"]
-        self.num_traj = train_params["num_traj"]
+        self.num_batches = train_params["num_batches"]
         self.stats = train_params["stats"]
         self.is_state_based = train_params["is_state_based"]
         self.device = device
         
-
         # create network object
         self.noise_pred_net = ConditionalUnet1D(
             input_dim=self.action_dim,
@@ -61,7 +60,7 @@ class DiffusionTrainer(nn.Module):
         
         if(not self.is_state_based):
             # Get vision encoder
-            self.vision_encoder = get_vision_encoder('resnet18')
+            self.vision_encoder = get_vision_encoder('resnet18', weights='IMAGENET1K_V2')
 
             # the final arch has 2 parts
             self.nets = nn.ModuleDict({
@@ -134,7 +133,7 @@ class DiffusionTrainer(nn.Module):
             name='cosine',
             optimizer=self.optimizer,
             num_warmup_steps=500,
-            num_training_steps= self.num_traj* self.num_epochs
+            num_training_steps= self.num_batches* self.num_epochs
         )
 
     def eval(self):
@@ -213,10 +212,7 @@ class DiffusionTrainer(nn.Module):
         Assumes that the batch size is 1
         """
         # Compute next pred_horizon actions and store the next action_horizon actions in a list
-        if len(self.mpc_actions) == 0:
-            if not self.is_state_based:
-                nimage = normalize_data(nimage, self.stats['nimage'])
-                
+        if len(self.mpc_actions) == 0:          
             nagent_pos = normalize_data(nagent_pos, self.stats['nagent_pos'])
             naction = self.get_all_actions_normalized(nimage, nagent_pos, sampler=sampler)
             naction_unnormalized = naction
@@ -294,12 +290,12 @@ class DiffusionTrainer(nn.Module):
     def run_after_epoch(self):
         self.ema.copy_to(self.inference_nets.parameters())
     
-    def eval_model(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naction: torch.Tensor, return_actions=False):
+    def eval_model(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naction: torch.Tensor, return_actions=False, sampler="ddim"):
         """
         Input: nimage, nagent_pos, naction in the dataset [normalized inputs]
         Returns the MSE loss between the normalized model actions and the normalized actions in the dataset
         """
-        model_actions_ddim = self.get_all_actions_normalized(nimage, nagent_pos, sampler="ddim")
+        model_actions_ddim = self.get_all_actions_normalized(nimage, nagent_pos, sampler=sampler) # (B, pred_horizon, action_dim)
         loss_ddim = self.loss_fn(model_actions_ddim, naction)
         loss = loss_ddim
         if return_actions:

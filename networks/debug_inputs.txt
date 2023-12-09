@@ -80,7 +80,7 @@ Output of eval unnorm: model_actions tensor(
          [ 0.3444,  0.0102,  0.4372,  0.0771]]], device='cuda:0')
 
 
-BC model new dataloader: BCTrainer_dataset_toy_expt_first_try_lr_0.0001_bs_256_epochs_400_loss_mse_loss_04-12-2023_16-41-18
+BC model new dataloader: FCTrainer_dataset_toy_expt_first_try_lr_0.0001_bs_256_epochs_400_loss_mse_loss_04-12-2023_16-41-18
 
 Input to eval: nagent_pos tensor(
        [[[ 0.2958, -1.0000, -0.5367, -0.1135,  0.9978, -1.0000,  0.1950, 0.9988],

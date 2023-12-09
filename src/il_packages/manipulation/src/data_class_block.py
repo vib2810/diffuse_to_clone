@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import cv2
 import sys
 import copy
 import rospy
@@ -9,7 +10,7 @@ from sensor_msgs.msg import Image
 from audio_common_msgs.msg import AudioData
 from geometry_msgs.msg import Pose, PoseStamped
 from autolab_core import RigidTransform
-
+from cv_bridge import CvBridge, CvBridgeError
 import scipy.spatial.transform as spt
 from scipy.spatial.transform import Rotation as R
 
@@ -25,7 +26,28 @@ from frankapy.proto import PosePositionSensorMessage, ShouldTerminateSensorMessa
 
 EXPERT_RECORD_FREQUENCY = 10
 RESET_SPEED = 3
+Z_PICK = 0.018
+COLLECT_AUDIO = True
 
+class GripperActuator():
+    gripped = False
+    GRASP_WIDTH = 0.041 # slightly lower than the real grasp width
+    # Gripper with call close_gripper when it is within 0.01m of the GRASP_WIDTH
+    def __init__(self) -> None:
+        pass
+    
+    def actuate_gripper(self, fa, next_gripper, curr_gripper_width):
+        # gripper actuate
+        if (next_gripper > (curr_gripper_width + 0.001)): # if gripper opening
+            self.gripped = False
+            fa.goto_gripper(next_gripper, block=False, speed=0.2)
+        elif (next_gripper - self.GRASP_WIDTH < 0.01) and (not self.gripped): # if not opening and close to GRASP_WIDTH
+            fa.stop_gripper()
+            fa.close_gripper()
+            self.gripped = True
+        elif not self.gripped: # General case
+            fa.goto_gripper(next_gripper, block=False, speed=0.2)
+        
 class Data():
     def __init__(self) -> None:
         self.pub = rospy.Publisher(FC.DEFAULT_SENSOR_PUBLISHER_TOPIC, SensorDataGroup, queue_size=1000)
@@ -33,17 +55,31 @@ class Data():
 
         self.audio_buffer_size = 32000
         self.audio_data = [0]*self.audio_buffer_size
+        self.bridge = CvBridge()
+        self.got_image = False
+        self.got_audio = False
+        self.gripper_actuator = GripperActuator()
 
         rospy.Subscriber('/audio/audio', AudioData, self.audio_callback)
         rospy.Subscriber('/camera/color/image_raw', Image, self.image_callback)
 
     def audio_callback(self, data):
+        """
+        Maintain an audio buffer of size 32000 (last ~2 seconds of audio)
+        """
+        if not self.got_audio:
+            self.got_audio = True
         self.audio_data.extend(data.data)
         if len(self.audio_data) > self.audio_buffer_size:
             self.audio_data = self.audio_data[-self.audio_buffer_size:]
 
     def image_callback(self, data):
-        self.image = data.data
+        try:
+            self.image = self.bridge.imgmsg_to_cv2(data, "bgr8") #(480, 640, 3)
+            self.got_image = True
+        except CvBridgeError as e:
+            self.got_image = False
+            print(e)
 
     def reset_joints(self):
         self.fa.reset_joints()
@@ -51,8 +87,7 @@ class Data():
     def goto_joint(self, joint_goal):
         self.fa.goto_joints(joint_goal, duration=5, dynamic=True, buffer_time=10)
 
-    POSE_DIFF_TOL = 0.02 # m/s
-    def get_next_pose_interp(self, target_pose: Pose, curr_pose: Pose):
+    def get_next_pose_interp(self, target_pose: Pose, curr_pose: Pose, speed=0.02):
         """
         Returns the next tool pose to goto from the current pose of the robot given a target pose 
         """
@@ -68,7 +103,7 @@ class Data():
         # if np.linalg.norm(target_position - current_position) < self.POSE_DIFF_TOL:
         #     next_position = target_position
         # else:
-        next_position = current_position + unit_diff_in_position*self.POSE_DIFF_TOL
+        next_position = current_position + unit_diff_in_position*speed
 
         diff_in_yaw_deg = target_orientation[0] - current_orientation[0]
         if abs(diff_in_yaw_deg) < 0.5:
@@ -93,18 +128,12 @@ class Data():
         next_pose.orientation.w = 0
         return next_pose
     
-    def get_current_pose_norm(self, target_pose: Pose, fa_pose: Pose):
+    def get_current_pose_norm(self, target_pose: PoseStamped, fa_pose: Pose):
         """
         Returns the norm of the difference between the fa_rigid and target_pose
         """
         norm_diff = get_pose_norm(target_pose.pose, fa_pose)
         return norm_diff
-    
-    def move_init_to_object_pose():
-        """
-        Moves the objects from initial pose to object pose
-        """
-        pass
 
     def get_target_pose(self, target_center_pose: PoseStamped):
         """
@@ -115,10 +144,11 @@ class Data():
         target_pose.pose.position.y += np.random.normal(0, 0.02)
         return target_pose
     
-    current_toy_state = 0  
-    FINAL_GRIPPER_WIDTH = 0.045 # slightly highter than grasp width
-    GRASP_WIDTH = 0.040 # slightly lower than grasp width
-    NORM_DIFF_TOL = 0.05
+    current_toy_state = 0
+    FINAL_GRIPPER_WIDTH = 0.045 # gripper width to terminate FSM, between, less than GRASP_WIDTH+0.01
+    NORM_DIFF_TOL = 0.03
+    Z_ABS_TOL = 0.003
+    
     def get_next_joint_planner_toy_joints(self, curr_pose: Pose, curr_gripper_width = float):
         """
         Takes as input the current robot joints, pose and gripper width
@@ -129,27 +159,25 @@ class Data():
         0: Go to pick hover 
         1: Go to pick
         2: Grasp
+        2.5: Go to post pick hover
         3: Go to place hover
         4: Go to place
         5: Ungrasp
+        6: Go to reset
 
         STATE MACHINE transitions
-        0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 3 -> 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 3 (without bag drop)
-        0 -> 1 -> 2 -> 0 -> 5 -> 1 -> 2 -> 3 -> 4 -> 5 -> 3 -> 0 -> 1 -> 2 -> 0 -> 5 -> 1 -> 2 -> 3 -> 4 -> 5 -> 3 (with bag drop)
+        0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 3 -> 6
         """
-        print("Current Toy State: ", self.current_toy_state)
+        self.FINAL_POSE_RESET = get_posestamped(np.array([0.5, 0.2, 0.3]),
+                                       np.array([1,0,0,0]))
         if self.current_toy_state == 0: # pick hover
             hover_pose = copy.deepcopy(self.pick_pose)
             hover_pose.pose.position.z += 0.2
             # check if arrived at hover pick pose
             norm_diff = self.get_current_pose_norm(hover_pose, curr_pose)
-            print("Norm Diff: ", norm_diff)
             if norm_diff < self.NORM_DIFF_TOL:
                 self.previous_toy_state = 0
-                if  not self.drop_bag:
-                    self.current_toy_state = 1
-                else:
-                    self.current_toy_state = 5
+                self.current_toy_state = 1
                 print("Arrived at hover pick pose")
                 return self.get_next_joint_planner_toy_joints(curr_pose, curr_gripper_width)
                 
@@ -160,63 +188,57 @@ class Data():
         elif self.current_toy_state == 1: # pick
             # check if arrived at pick pose
             norm_diff = self.get_current_pose_norm(self.pick_pose, curr_pose)
-            print("State: ", self.current_toy_state, "Norm Diff: ", norm_diff)
-            if norm_diff < self.NORM_DIFF_TOL:
+            if abs(curr_pose.position.z - Z_PICK) < self.Z_ABS_TOL:
                 self.previous_toy_state = 1
                 self.current_toy_state = 2
                 print("Arrived at pick pose")
                 return self.get_next_joint_planner_toy_joints(curr_pose, curr_gripper_width)
             
             # plan to pick pose
-            next_action = self.get_next_pose_interp(self.pick_pose.pose, curr_pose)
+            next_action = self.get_next_pose_interp(self.pick_pose.pose, curr_pose, speed=0.016)
             return next_action, curr_gripper_width
             
         elif self.current_toy_state == 2: # grasp
             # check if current gripper width is less than FINAL_GRIPPER_WIDTH
             if curr_gripper_width < self.FINAL_GRIPPER_WIDTH:
                 self.previous_toy_state = 2
-                if not self.drop_bag:
-                    self.drop_bag = True
-                    self.current_toy_state = 0
-                else:
-                    self.drop_bag = False
-                    self.current_toy_state = 3
+                self.current_toy_state = 2.5
                 print("Gripper Closed")
                 return self.get_next_joint_planner_toy_joints(curr_pose, curr_gripper_width)
         
             # close gripper for 0.01 m
             next_gripper_width = curr_gripper_width - 0.01
             return curr_pose, next_gripper_width
+
+        elif self.current_toy_state == 2.5: # pick hover
+            hover_pose = copy.deepcopy(self.pick_pose)
+            hover_pose.pose.position.z += 0.1
+            # check if arrived at hover pick pose
+            norm_diff = self.get_current_pose_norm(hover_pose, curr_pose)
+            if norm_diff < self.NORM_DIFF_TOL:
+                self.previous_toy_state = 2.5
+                self.current_toy_state = 3
+                print("Arrived at post pick hover pose")
+                return self.get_next_joint_planner_toy_joints(curr_pose, curr_gripper_width)
+
+            # plan to hover pick pose
+            next_action = self.get_next_pose_interp(hover_pose.pose, curr_pose)
+            return next_action, curr_gripper_width
         
         elif self.current_toy_state == 3: # place hover
             hover_pose = copy.deepcopy(self.place_pose)
-            hover_pose.pose.position.z += 0.2
+            hover_pose.pose.position.z += 0.1
             # check if arrived at hover place pose
             norm_diff = self.get_current_pose_norm(hover_pose, curr_pose)
             if norm_diff < self.NORM_DIFF_TOL:
                 if self.previous_toy_state == 5:
-                    self.objects_done += 1
-                    if self.objects_done == 2:
-                        print("All objects done")
-                        return None, None
-                    else:
-                        self.previous_toy_state = 3
-                        self.current_toy_state = 0
-                        print("First object Done")
-
-                        if self.object_chosen == 1:
-                            self.pick_pose = self.object2_pose
-                            self.place_pose = self.target2_pose
-                        else:
-                            self.pick_pose = self.object1_pose
-                            self.place_pose = self.target1_pose
-
-                        return self.get_next_joint_planner_toy_joints(curr_pose, curr_gripper_width)
+                    self.previous_toy_state = 3
+                    self.current_toy_state = 6
                 else:
                     self.previous_toy_state = 3
                     self.current_toy_state = 4
-                    print("Arrived at hover place pose")
-                    return self.get_next_joint_planner_toy_joints(curr_pose, curr_gripper_width)
+                print("Arrived at hover place pose")
+                return self.get_next_joint_planner_toy_joints(curr_pose, curr_gripper_width)
 
             # plan to hover place pose
             next_action = self.get_next_pose_interp(hover_pose.pose, curr_pose)
@@ -225,47 +247,86 @@ class Data():
         elif self.current_toy_state == 4: # place
             # check if arrived at place pose
             norm_diff = self.get_current_pose_norm(self.place_pose, curr_pose)
-            print("Norm Diff: ", norm_diff)
-            if norm_diff < self.NORM_DIFF_TOL:
+            # print place pose and curr pose
+            if abs(curr_pose.position.z - Z_PICK) < self.Z_ABS_TOL:
                 self.previous_toy_state = 4
                 self.current_toy_state = 5
                 print("Arrived at place pose")
                 return self.get_next_joint_planner_toy_joints(curr_pose, curr_gripper_width)
             
             # plan to place pose
-            next_action = self.get_next_pose_interp(self.place_pose.pose, curr_pose)
+            next_action = self.get_next_pose_interp(self.place_pose.pose, curr_pose, speed=0.015)
             return next_action, curr_gripper_width
         
         elif self.current_toy_state == 5: # ungrasp
             # check if current gripper width is more than FINAL_GRIPPER_WIDTH
             if curr_gripper_width > 0.07:
                 self.previous_toy_state = 5
-                if self.drop_bag: 
-                    self.current_toy_state = 1
-                else:
-                    self.current_toy_state = 3
+                self.current_toy_state = 3
                 print("Gripper Opened, action complete")
+                # record accurate place pose
+                # self.place_pose = get_posestamped(np.array([curr_pose.position.x, curr_pose.position.y, Z_PICK]),
+                #                                   np.array([1,0,0,0]))
                 return self.get_next_joint_planner_toy_joints(curr_pose, curr_gripper_width)
             
             # open gripper for 0.01 m 
             next_gripper_width = curr_gripper_width + 0.01
             return curr_pose, next_gripper_width
         
+        elif self.current_toy_state == 6: # reset
+            # check if arrived at reset pose
+            norm_diff = self.get_current_pose_norm(self.FINAL_POSE_RESET, curr_pose)
+            if norm_diff < self.NORM_DIFF_TOL:
+                self.previous_toy_state = 6
+                self.current_toy_state = 0
+                print("Arrived at reset pose")
+                return None, None
+            
+            next_action = self.get_next_pose_interp(self.FINAL_POSE_RESET.pose, curr_pose)
+            return next_action, curr_gripper_width
+        
         else:
             print("Invalid State")
             return None, None
         
-    gripped = False
     def collect_trajectories_joints(self, expt_data_dict):
-        self.object1_pose = expt_data_dict["init1_pose"]
-        self.object2_pose = expt_data_dict["init2_pose"]
-        self.target1_center_pose = expt_data_dict["target1_pose"]
-        self.target2_center_pose = expt_data_dict["target2_pose"]
-
-        expt_folder = '/home/ros_ws/bags/recorded_trajectories/'+ expt_data_dict["experiment_name"]
+        self.pick_pose = expt_data_dict["pick_pose"]
+        self.place_pose = expt_data_dict["place_pose"]
+        expt_folder = '/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"]
+        expt_img_folder = '/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/Images'
+        expt_audio_folder = '/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/Audio'
 
         if not os.path.exists(expt_folder):
             os.makedirs(expt_folder)
+
+        if not os.path.exists(expt_img_folder):
+            os.makedirs(expt_img_folder)
+            
+        if not os.path.exists(expt_audio_folder) and COLLECT_AUDIO:
+            os.makedirs(expt_audio_folder)
+        
+        if not self.got_image:
+            # wait for 3 seconds to get image
+            print("Waiting for image")
+            rospy.sleep(3)
+        if self.got_image == False:
+            print("No image received")
+            sys.exit(0)
+            
+        if not self.got_audio and COLLECT_AUDIO:
+            # wait for 3 seconds to get audio
+            print("Waiting for audio")
+            rospy.sleep(3)
+            
+        if self.got_audio == False and COLLECT_AUDIO:
+            print("No audio received")
+            sys.exit(0)
+
+        if not os.path.exists(expt_folder):
+            os.makedirs(expt_folder)
+
+        # Place the block at a random location
+        self.reset_environment()
 
         for i in range (expt_data_dict["n_trajectories"]):
             print(f"--------------Recording Trajectory {i}--------------")
@@ -274,24 +335,10 @@ class Data():
             if expt_data_dict["eval_mode"]:
                 np.random.seed(1234*i)
             else:
-                np.random.seed(i)
-
-            self.objects_done = 0
-            self.target1_pose = self.get_target_pose(self.target1_center_pose)
-            self.target2_pose = self.get_target_pose(self.target2_center_pose)
-            
-            # Choose object to pick first
-            if np.random.rand() < 0.5:
-                self.object_chosen = 1
-                self.pick_pose = self.object1_pose
-                self.place_pose = self.target1_pose
-            else:
-                self.object_chosen = 2
-                self.pick_pose = self.object2_pose
-                self.place_pose = self.target2_pose
+                # set seed based on time
+                np.random.seed(int(rospy.Time.now().to_time()))
                 
             # reset to home position
-            self.drop_bag = False
             self.previous_toy_state = -1
             self.current_toy_state = 0
             self.fa.reset_joints()
@@ -303,7 +350,8 @@ class Data():
         
             # Variables for recording data
             obs, acts, timesteps, tool_poses_i = [], [], [], []
-
+            audios, images = [], []
+            
             # Start recording data
             counter = 0
             init_time = rospy.Time.now().to_time()
@@ -317,16 +365,19 @@ class Data():
                 if next_pose is None and next_gripper is None:
                     break
                     
-                print("Counter: ", counter)
-                print("Curr Pose: ", curr_pose, "\n Curr Gripper Width: ", curr_gripper_width)
-                print("Next Pose: ", next_pose, "\n Next Gripper Width: ", next_gripper, "gripped: ", self.gripped)
-                print("***************"*3)
-                print()
+                # print("Counter: ", counter)
+                # print("Curr Pose: ", curr_pose, "\n Curr Gripper Width: ", curr_gripper_width)
+                # print("Next Pose: ", next_pose, "\n Next Gripper Width: ", next_gripper, "gripped: ", self.gripped)
+                # print("***************"*3)
+                # print()
 
                 # Record data
                 obs.append([curr_joints, curr_gripper_width])
                 tool_poses_i.append(curr_pose)
                 acts.append([next_pose, next_gripper])
+                if COLLECT_AUDIO:
+                    audios.append(self.audio_data)
+                images.append(self.image)
                 timesteps.append(rospy.Time.now().to_nsec())
                 
                 timestamp = rospy.Time.now().to_time() - init_time
@@ -348,19 +399,7 @@ class Data():
                 )
                 self.pub.publish(ros_msg)
 
-                # gripper actuate
-                if (next_gripper > (curr_gripper_width + 0.008)):
-                    self.gripped = False
-                if (next_gripper - self.GRASP_WIDTH < 0.01) and (not self.gripped):
-                    # self.fa.goto_gripper(width = FC.GRIPPER_WIDTH_MIN, 
-                    #                      grasp=True, block=False, force = FC.GRIPPER_MAX_FORCE)
-                    # print("calling with grasp")
-                    self.fa.stop_gripper()
-                    self.fa.close_gripper()
-                    self.gripped = True
-                elif not self.gripped:
-                    print("calling without grasp")
-                    self.fa.goto_gripper(next_gripper, block=False, speed=0.2)
+                self.gripper_actuator.actuate_gripper(self.fa, next_gripper, curr_gripper_width)
                 counter += 1
                 rate.sleep()
             
@@ -381,8 +420,8 @@ class Data():
                 "actions": acts,
                 "timestamps": timesteps,
                 "tool_poses": tool_poses_i,
-                "audio_data": self.audio_data,
-                "image_data": self.image
+                # "audio_data": audios,
+                # "image_data": images
             }
             print("Recorded Trajectory of length: ", len(obs))
             
@@ -399,55 +438,74 @@ class Data():
             print("Saving Trajectory: ", traj_num)
                 
             # Save data
-            with open('/home/ros_ws/bags/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/'+ expt_data_dict["experiment_name"] + '_' + str(traj_num) + '.pkl', 'wb') as f:
+            with open('/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/'+ expt_data_dict["experiment_name"] + '_' + str(traj_num) + '.pkl', 'wb') as f:
                 pickle.dump(data, f)
 
-            self.reset()
+            # Save images
+            img_folder = '/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/Images/' + str(traj_num)
+            if not os.path.exists(img_folder):
+                os.makedirs(img_folder)
 
-    def reset(self):
+            for i in range(len(images)):
+                cv2.imwrite(os.path.join(img_folder, str(i) + ".png"), images[i])
+                
+            # Save audio
+            if COLLECT_AUDIO:
+                audio_folder = '/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/Audio/' + str(traj_num)
+                if not os.path.exists(audio_folder):
+                    os.makedirs(audio_folder)
+                
+                for i in range(len(audios)):
+                    np.save(os.path.join(audio_folder, str(i) + ".npy"), audios[i])
+
+            self.reset_environment()
+            
+    def goto_hover_pose(self, given_pose: RigidTransform):
+        hover_pose = copy.deepcopy(given_pose)
+        hover_pose.translation[2] += 0.2
+        self.fa.goto_pose(hover_pose, duration=3)
+    
+    def composed_pick_drop(self, given_pose: RigidTransform, pick=True):
+        # goto hover pose above given pose
+        self.goto_hover_pose(given_pose)
+        
+        # goto given pose
+        self.fa.goto_pose(given_pose, duration=3)
+        
+        # either pick or drop
+        if pick:
+            self.fa.close_gripper()
+        else:
+            self.fa.open_gripper()
+        
+        # reset to hover pose
+        self.goto_hover_pose(given_pose)
+
+    # Boundaries for randomly placing the block to after reset
+    LOWER_X, LOWER_Y = 0.4, -0.2
+    UPPER_X, UPPER_Y = 0.6, 0.06
+    def reset_environment(self):
         """
-        Resets the objects to new poses
+        Resets the object
         """
         print("Resetting")
-        LOWER_X, LOWER_Y, LOWER_Z = 0.4, -0.33, 0.014
-        UPPER_X, UPPER_Y, _ = 0.6, 0.06, 0.014
-        self.object1_pose = get_posestamped(np.array([np.random.uniform(LOWER_X, UPPER_X), np.random.uniform(LOWER_Y, UPPER_Y), LOWER_Z]),
-                                            np.array([1,0,0,0]))
-        self.object2_pose = get_posestamped(np.array([np.random.uniform(LOWER_X, UPPER_X), np.random.uniform(LOWER_Y, UPPER_Y), LOWER_Z]),
-                                            np.array([1,0,0,0]))
-        if self.object_chosen == 1:
-            reset1_from_pose = getRigidTransform(self.target2_pose.pose)
-            reset2_from_pose = getRigidTransform(self.target1_pose.pose)
-            reset1_to_pose = getRigidTransform(self.object2_pose.pose)
-            reset2_to_pose = getRigidTransform(self.object1_pose.pose)
-        else:
-            reset1_from_pose = getRigidTransform(self.target1_pose.pose)
-            reset2_from_pose = getRigidTransform(self.target2_pose.pose)
-            reset1_to_pose = getRigidTransform(self.object1_pose.pose)
-            reset2_to_pose = getRigidTransform(self.object2_pose.pose)
+        # Compute new place pose
+        new_x = np.random.uniform(self.LOWER_X, self.UPPER_X); new_y = np.random.uniform(self.LOWER_Y, self.UPPER_Y)
+        new_place_pose = get_posestamped(np.array([new_x, new_y, Z_PICK]), np.array([1,0,0,0]))
+        
+        reset_from_pose = getRigidTransform(self.place_pose.pose)
+        reset_to_pose = getRigidTransform(new_place_pose.pose)
 
-        self.fa.goto_pose(reset1_from_pose, duration=5)
-        self.fa.close_gripper()
-        reset1_to_pose.translation[2] += 0.2
-        self.fa.goto_pose(reset1_to_pose, duration=5)
-        reset1_to_pose.translation[2] -= 0.2
-        self.fa.goto_pose(reset1_to_pose, duration=5)
-        self.fa.open_gripper()
-        reset1_to_pose.translation[2] += 0.2
-        self.fa.goto_pose(reset1_to_pose, duration=5)
-        reset2_from_pose.translation[2] += 0.2
-        self.fa.goto_pose(reset2_from_pose, duration=5)
-        reset2_from_pose.translation[2] -= 0.2
-        self.fa.goto_pose(reset2_from_pose, duration=5)
-        self.fa.close_gripper()
-        reset2_to_pose.translation[2] += 0.2
-        self.fa.goto_pose(reset2_to_pose, duration=5)
-        reset2_to_pose.translation[2] -= 0.2
-        self.fa.goto_pose(reset2_to_pose, duration=5)
-        self.fa.open_gripper()
-        reset2_to_pose.translation[2] += 0.2
-        self.fa.goto_pose(reset2_to_pose, duration=5)
-
+        # pickup from reset_from_pose
+        self.composed_pick_drop(reset_from_pose, pick=True)
+        
+        # drop at reset_to_pose
+        self.composed_pick_drop(reset_to_pose, pick=False)
+        
+        # record new pick pose
+        curr_pose = self.fa.get_pose()
+        self.pick_pose = get_posestamped(np.array([curr_pose.translation[0], curr_pose.translation[1], Z_PICK]), np.array([1,0,0,0]))
+        
         print("Reset Done")
         print("--------------Trajectory Done--------------")
 
@@ -531,15 +589,10 @@ if __name__ == "__main__":
     expt_data_dict["experiment_name"] = experiment_name
     expt_data_dict["n_trajectories"] = num_trajs_to_collect
     expt_data_dict["eval_mode"] = eval_mode
-    expt_data_dict["init1_pose"] = get_posestamped(np.array([0.47739821, -0.2, 0.014]),
+    expt_data_dict["pick_pose"] = get_posestamped(np.array([0.47739821, -0.2, Z_PICK]),
                                                   np.array([1,0,0,0]))
-    expt_data_dict["init2_pose"] = get_posestamped(np.array([0.60648338, -0.2, 0.014]),
-                                                   np.array([1,0,0,0]))
-    expt_data_dict["target1_pose"] = get_posestamped(np.array([0.4758666, 0.23351082, 0.014]),
+    expt_data_dict["place_pose"] = get_posestamped(np.array([0.4758666, 0.23351082, Z_PICK]),
                                                   np.array([1,0,0,0]))
-    expt_data_dict["target2_pose"] = get_posestamped(np.array([0.63461075, 0.2357518, 0.014]),
-                                                   np.array([1,0,0,0]))
-
         
     print("Collecting Experiment with Config:\n ", expt_data_dict)
     

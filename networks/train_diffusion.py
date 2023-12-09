@@ -27,7 +27,7 @@ if __name__ == "__main__":
     data_params = {
         "dataset_path": f'/home/ros_ws/dataset/data/{dataset_name}/train',
         'eval_dataset_path': f'/home/ros_ws/dataset/data/{dataset_name}/eval',
-        "is_state_based": True,
+        "is_state_based": False,
         "pred_horizon": 16,  # must be a multiple of 2
         "obs_horizon": 2,
         "action_horizon": 8, # MPC number of actions to take
@@ -35,13 +35,12 @@ if __name__ == "__main__":
 
     # Make the train params
     train_params = {
-        "batch_size": 256,
-        "eval_batch_size": 256,
+        "batch_size": 128,
+        "eval_batch_size": 128,
         "num_workers": 4,
         "num_epochs": 400,
         "learning_rate": 1e-4,
         "loss": nn.functional.mse_loss,
-        'use_stats': False,
         'model_class': DiffusionTrainer,
         'num_diffusion_iters': 100,
         'num_ddim_iters': 10, # for DDIM sampling

@@ -128,7 +128,7 @@ def parse_states(observations: list, mode='concat'):
     
     """
 
-    observations = np.array(observations)
+    observations = np.array(observations, dtype=object)
     robot_joint_values = np.array([np.array(x[0]) for x in observations])
     gripper_width = observations[:,1]
     gripper_width = np.expand_dims(gripper_width,axis=1)
@@ -183,11 +183,10 @@ def initialize_data(is_state_based=True):
         
     data = OrderedDict()
     if is_state_based is False:
-        data['images'] = []
+        data["image_data_info"] = []
         
     data['nagent_pos'] = []
     data['actions'] = []
-    data['episode_ends'] = []
     data['terminals'] = []
 
     return data
@@ -210,17 +209,22 @@ def get_stacked_sample(observations, terminals, seq_len, start_idx):
     - Observation: (N, ob_dim)
     - Terminals: (N, 1)
     - Previous Observations: (N, ob_dim)
+    This functions puts zero padding in the start if there is a terminal state in between!
     """
     end_idx = start_idx + seq_len
-    # check if there is a terminal state between start and end
-    for idx in range(start_idx, end_idx - 1):
+    # check if there is a terminal state between start and end, if yes then shift the start_idx
+    # dataloader repeats the first observation for missing_context times in such cases
+    for idx in range(start_idx, end_idx):
         if terminals[idx]:
             start_idx = idx + 1
     missing_context = seq_len - (end_idx - start_idx)
     
-    # if zero padding is needed for missing context
-    if start_idx < 0 or missing_context > 0:
-        frames = [np.zeros_like(observations[0])] * missing_context
+    if missing_context > 0:
+        # frames = [np.zeros_like(observations[0])] * missing_context
+        frames = []
+        # repeat the first observation for missing_context times
+        for idx in range(missing_context):
+            frames.append(observations[start_idx])
         for idx in range(start_idx, end_idx):
             frames.append(observations[idx])
         frames = np.stack(frames)
@@ -235,7 +239,7 @@ def get_stacked_action(actions, terminals, seq_len, start_idx):
     """
     end_idx = start_idx + seq_len
     # check if there is a terminal state between start and end
-    for idx in range(start_idx, end_idx - 1):
+    for idx in range(start_idx, end_idx):
         if terminals[idx]:
             end_idx = idx + 1
             break
@@ -252,11 +256,14 @@ def get_stacked_action(actions, terminals, seq_len, start_idx):
     else:
         return actions[start_idx:end_idx] # shape (seq_len, ob_dim)
 
-def get_stacked_samples(observations, actions, terminals, ob_seq_len, ac_seq_len,
+def get_stacked_samples(observations, actions, 
+                        image_data_info,
+                        terminals, ob_seq_len, ac_seq_len,
                         batch_size, start_idxs=None):
     """
     Observations: (N, ob_dim)
     Actions: (N, ac_dim)
+    Image_data_info: (N, 2)
     Terminals: (N, 1)
     Returns a batch of stacked samples
         - Observations: (batch_size, ob_seq_len, ob_dim)
@@ -267,15 +274,24 @@ def get_stacked_samples(observations, actions, terminals, ob_seq_len, ac_seq_len
     """
     if start_idxs is None:
         start_idxs = np.random.randint(0, len(observations) - ob_seq_len - ac_seq_len, batch_size)
-    
-    # print("start_idxs", start_idxs)
-    
+        
     stacked_observations = []
     stacked_actions = []
+    stacked_image_data_info = []
+        
+    ### TODO: For loop is not needed here!
     for start_idx in start_idxs:
         obs = get_stacked_sample(observations, terminals, ob_seq_len, start_idx)
         ac = get_stacked_action(actions, terminals, ac_seq_len, start_idx + ob_seq_len - 1)
         stacked_observations.append(obs)
         stacked_actions.append(ac)
         
-    return np.stack(stacked_observations), np.stack(stacked_actions) # (batch_size, seq_len, ob_dim), (batch_size, ac_seq_len, ac_dim)
+        if image_data_info is not None:
+            im = get_stacked_sample(image_data_info, terminals, ob_seq_len, start_idx)
+            stacked_image_data_info.append(im)
+        
+    if image_data_info is None:
+        return np.stack(stacked_observations), np.stack(stacked_actions), None
+    
+    # (batch_size, seq_len, ob_dim), (batch_size, ac_seq_len, ac_dim), (batch_size, seq_len, 2)
+    return np.stack(stacked_observations), np.stack(stacked_actions), np.stack(stacked_image_data_info)
