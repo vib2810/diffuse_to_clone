@@ -248,7 +248,7 @@ if __name__=="__main__":
     
     # iterate over the dataset and print shapes of each element
     ### Create dataloader
-    eval_dataloader = torch.utils.data.DataLoader(
+    dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=128,
         num_workers=1,
@@ -259,8 +259,10 @@ if __name__=="__main__":
         persistent_workers=False
     )  
     
+    print("Len of dataloader: ", len(dataloader))
+    
     # iterate over the dataset and print shapes of each element
-    for i, data in enumerate(eval_dataloader):
+    for i, data in enumerate(dataloader):
         print("Batch: ", i)
         print("size of nagent_pos: ", data['nagent_pos'].shape)
         print("size of actions: ", data['actions'].shape)

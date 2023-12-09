@@ -19,7 +19,8 @@ sys.path.append("/home/ros_ws/networks") # for torch.load to work
 
 class ModelEvaluator:
     ACTION_HORIOZON = 1
-    DDIM_STEPS = 10
+    DDIM_STEPS = 20
+    DIFFUSION_SAMPLER = 'ddpm'
     def __init__(self,
             model_name
         ):
@@ -28,6 +29,8 @@ class ModelEvaluator:
         self.train_params = {key: stored_pt_file[key] for key in stored_pt_file if key != "model_weights"}
         self.train_params["action_horizon"] = self.ACTION_HORIOZON
         self.train_params["num_ddim_iters"] = self.DDIM_STEPS
+        if 'num_batches' not in self.train_params:
+            self.train_params['num_batches'] = self.train_params['num_traj']
         if str(stored_pt_file["model_class"]).find("DiffusionTrainer") != -1:
             print("Loading Diffusion Model")
             self.model = DiffusionTrainer(
@@ -61,13 +64,14 @@ class ModelEvaluator:
             pred_horizon=data_params['pred_horizon'],
             obs_horizon=data_params['obs_horizon'],
             action_horizon=data_params['action_horizon'],
+            is_state_based=self.model.is_state_based
         )
 
         ### Create dataloader
         self.eval_dataloader = torch.utils.data.DataLoader(
             eval_dataset,
-            batch_size=1,
-            num_workers=1,
+            batch_size=16,
+            num_workers=4,
             shuffle=False,
             # accelerate cpu-gpu transfer
             pin_memory=True,
@@ -104,27 +108,23 @@ class ModelEvaluator:
             naction = nbatch['actions'].to(self.model.device)
             B = nagent_pos.shape[0]
 
-            loss, model_actions = self.model.eval_model(nimage, nagent_pos, naction, return_actions=True)
-            # if the first nagent_pos stacked input is all zeros, then the output is also all zeros
-            for bidx in range (B):
-                if torch.sum(nagent_pos[bidx, 0]) == 0:
-                    counter += 1
-            print("Num data points with first seq all zeros: ", counter)
+            loss, model_actions = self.model.eval_model(nimage, nagent_pos, naction, return_actions=True, sampler=self.DIFFUSION_SAMPLER)
+            
             # print("Input to eval: nagent_pos", nagent_pos)
             # print("Input to eval: naction", naction)
             # print("Output of eval: model_actions", model_actions)
             
             # unnormalized printing
-            model_actions_unnorm = unnormalize_data(model_actions, self.model.stats['actions']).squeeze()
-            if model_actions_unnorm[0]<0.5:
-                print("Input to eval unnorm: nagent_pos", unnormalize_data(nagent_pos, self.model.stats['nagent_pos']))
-                print("Input to eval unnorm: naction", unnormalize_data(naction, self.model.stats['actions']))
-                print("Output of eval unnorm: model_actions", unnormalize_data(model_actions, self.model.stats['actions']))
-            else:
-                print(model_actions_unnorm[0])
-            print()
+            # model_actions_unnorm = unnormalize_data(model_actions, self.model.stats['actions']).squeeze()
+            # print("Input to eval unnorm: nagent_pos", unnormalize_data(nagent_pos, self.model.stats['nagent_pos']))
+            # print("Input to eval unnorm: naction", unnormalize_data(naction, self.model.stats['actions']))
+            # print("Output of eval unnorm: model_actions", unnormalize_data(model_actions, self.model.stats['actions']))
+            # print()
             total_loss += loss*B    
+            counter += B
             max_loss = max(max_loss, loss)
+            print(f"Loss: {loss}, Max loss: {max_loss}, Counter: {counter}, Running Mean Loss: {total_loss/counter}")
+            
         
         print(f"Max loss: {max_loss}")
         

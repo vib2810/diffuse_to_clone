@@ -41,7 +41,7 @@ if __name__ == "__main__":
         "eval_batch_size": 128,
         "learning_rate": 1e-4,
         "n_layers": 4,
-        "hidden_size": 512,
+        "hidden_size": 1024,
         "num_workers": 8,
         "num_epochs": 400,
         "loss": nn.functional.mse_loss,
@@ -53,6 +53,8 @@ if __name__ == "__main__":
 
     train_params["experiment_name"] = train_params['model_class'].__name__ + \
                                     '_dataset_' + dataset_name + \
+                                    '_hidden_size_' + str(train_params['hidden_size']) + \
+                                    '_state_based_' + str(data_params['is_state_based']) + \
                                     '_lr_' + str(train_params['learning_rate']) + \
                                     '_bs_' + str(train_params['batch_size']) + \
                                     '_epochs_' + str(train_params['num_epochs']) + \
