@@ -26,12 +26,12 @@ from frankapy.proto import PosePositionSensorMessage, ShouldTerminateSensorMessa
 
 EXPERT_RECORD_FREQUENCY = 10
 RESET_SPEED = 3
-Z_PICK = 0.018
+Z_PICK = 0.022
 COLLECT_AUDIO = True
 
 class GripperActuator():
     gripped = False
-    GRASP_WIDTH = 0.041 # slightly lower than the real grasp width
+    GRASP_WIDTH = 0.053 # slightly lower than the real grasp width
     # Gripper with call close_gripper when it is within 0.01m of the GRASP_WIDTH
     def __init__(self) -> None:
         pass
@@ -149,9 +149,9 @@ class Data():
         target_pose.pose.position.y += np.random.normal(0, 0.02)
         return target_pose
     
-    FINAL_GRIPPER_WIDTH = 0.045 # gripper width to terminate FSM, between, less than GRASP_WIDTH+0.01
+    FINAL_GRIPPER_WIDTH = 0.06 # gripper width to terminate FSM, between, less than GRASP_WIDTH+0.01
     NORM_DIFF_TOL = 0.035
-    Z_ABS_TOL = 0.003
+    Z_ABS_TOL = 0.0035
 
     def inner_FSM(self, curr_pose: Pose, curr_gripper_width: float, go_to_pose: Pose, grasp=True, pre_hover_height=0.1, post_hover_height=0.1):
         """
@@ -191,6 +191,8 @@ class Data():
         
         elif self.current_toy_state == 1: # pick
             # check if arrived at pick pose
+            print("Z Diff: ", abs(curr_pose.position.z - Z_PICK))
+            
             if abs(curr_pose.position.z - Z_PICK) < self.Z_ABS_TOL:
                 if grasp:
                     self.current_toy_state = 2
@@ -206,6 +208,8 @@ class Data():
             
         elif self.current_toy_state == 2: # grasp
             # check if current gripper width is less than FINAL_GRIPPER_WIDTH
+            print("Gripper Width: ", curr_gripper_width)
+            
             if curr_gripper_width < self.FINAL_GRIPPER_WIDTH:
                 self.current_toy_state = 3
                 print("Inner: Gripper Closed")
@@ -221,6 +225,8 @@ class Data():
 
             # check if arrived at hover pick pose
             norm_diff = self.get_current_pose_norm(hover_pose, curr_pose)
+            print("Norm Diff: ", norm_diff)
+            
             if abs(curr_pose.position.z - hover_pose.pose.position.z) < self.Z_ABS_TOL:
                 self.current_toy_state = 0
                 print("Inner: Arrived at post hover pose")
@@ -232,6 +238,8 @@ class Data():
         
         elif self.current_toy_state == 4: # ungrasp
             # check if current gripper width is more than FINAL_GRIPPER_WIDTH
+            print("Gripper Width: ", curr_gripper_width)    
+            
             if curr_gripper_width > 0.07:
                 self.current_toy_state = 3
                 print("Inner: Gripper Opened, action complete")
@@ -277,9 +285,11 @@ class Data():
         print("Current State: ", self.current_state)
 
         if self.current_state == 0: # first object
-            next_action, next_gripper_width = self.inner_FSM(curr_pose, curr_gripper_width, self.pick_pose, grasp=True, pre_hover_height=0.1, post_hover_height=0.05)
+            next_action, next_gripper_width = self.inner_FSM(curr_pose, curr_gripper_width, self.pick_pose, grasp=True, pre_hover_height=0.1, post_hover_height=0.03)
 
             if next_action is None and next_gripper_width is None:
+                if self.object_chosen == "NO_COIN":
+                    self.objects_done += 1
                 self.current_state = 1
                 print("Outer: Picked object 1")
                 return self.get_next_joint_planner_toy_joints(curr_pose, curr_gripper_width)
@@ -290,9 +300,12 @@ class Data():
             # check if current gripper width is more than FINAL_GRIPPER_WIDTH
             if curr_gripper_width > 0.07:
                 if self.object_chosen == "NO_COIN":
-                    self.current_state = 2
-                    self.pick_pose = self.coin_pose
-                    self.object_chosen = "COIN"
+                    if self.objects_done == 1:
+                        self.current_state = 2
+                        self.pick_pose = self.coin_pose
+                        self.object_chosen = "COIN"
+                    else:
+                        self.current_state = 5
                 else:
                     self.current_state = 3
                 print("Outer: Gripper Opened")
@@ -303,9 +316,11 @@ class Data():
             return curr_pose, next_gripper_width        
         
         elif self.current_state == 2:  # second object
-            next_action, next_gripper_width = self.inner_FSM(curr_pose, curr_gripper_width, self.pick_pose, grasp=True, pre_hover_height=0.1, post_hover_height=0.05)
+            next_action, next_gripper_width = self.inner_FSM(curr_pose, curr_gripper_width, self.pick_pose, grasp=True, pre_hover_height=0.1, post_hover_height=0.03)
 
             if next_action is None and next_gripper_width is None:
+                if self.object_chosen == "NO_COIN":
+                    self.objects_done += 1
                 self.current_state = 1
                 print("Outer: Picked object 2")
                 return self.get_next_joint_planner_toy_joints(curr_pose, curr_gripper_width)
@@ -313,7 +328,7 @@ class Data():
             return next_action, next_gripper_width
             
         elif self.current_state == 3: # chosen object
-            next_action, next_gripper_width = self.inner_FSM(curr_pose, curr_gripper_width, self.pick_pose, grasp=True, pre_hover_height=0.05, post_hover_height=0.1)
+            next_action, next_gripper_width = self.inner_FSM(curr_pose, curr_gripper_width, self.pick_pose, grasp=True, pre_hover_height=0.03, post_hover_height=0.1)
 
             if next_action is None and next_gripper_width is None:
                 self.current_state = 4
@@ -326,7 +341,13 @@ class Data():
             next_action, next_gripper_width = self.inner_FSM(curr_pose, curr_gripper_width, self.target_pose, grasp=False, pre_hover_height=0.1, post_hover_height=0.1)
 
             if next_action is None and next_gripper_width is None:
-                self.current_state = 5
+                self.objects_done += 1
+                if self.objects_done == 1:
+                    self.current_state = 2
+                    self.pick_pose = self.no_coin_pose
+                    self.object_chosen = "NO_COIN"
+                else:
+                    self.current_state = 5
                 print("Outer: Placed object")
                 return self.get_next_joint_planner_toy_joints(curr_pose, curr_gripper_width)
             
@@ -388,7 +409,7 @@ class Data():
             os.makedirs(expt_folder)
 
         # Place the block at a random location
-        # self.reset_environment()
+        self.reset_environment()
 
         for i in range (expt_data_dict["n_trajectories"]):
             print(f"--------------Recording Trajectory {i}--------------")
@@ -409,6 +430,7 @@ class Data():
                 self.pick_pose = self.no_coin_pose
                
             # reset to home position 
+            self.objects_done = 0
             self.current_state = 0
             self.current_toy_state = 0
             self.fa.reset_joints()
@@ -555,7 +577,7 @@ class Data():
     LOWER_X, LOWER_Y = 0.4, -0.2
     UPPER_X, UPPER_Y = 0.6, 0.06
     MIN_DIST_BETWEEN_POSES_X = 0.15
-    MIN_DIST_BETWEEN_POSES_Y = 0.1
+    MIN_DIST_BETWEEN_POSES_Y = 0.15
     def reset_environment(self):
         """
         Resets the object
@@ -563,19 +585,23 @@ class Data():
         print("Resetting")
         # Compute new place pose
         new_x1 = np.random.uniform(self.LOWER_X, self.UPPER_X); new_y1 = np.random.uniform(self.LOWER_Y, self.UPPER_Y)
-        self.new_coin_pose = get_posestamped(np.array([new_x1, new_y1, Z_PICK]), np.array([1,0,0,0]))
         
         new_x2 = np.random.uniform(self.LOWER_X, self.UPPER_X); new_y2 = np.random.uniform(self.LOWER_Y, self.UPPER_Y)
         while (abs(new_x2 - new_x1) < self.MIN_DIST_BETWEEN_POSES_X) and (abs(new_y2 - new_y1) < self.MIN_DIST_BETWEEN_POSES_Y):
             new_x2 = np.random.uniform(self.LOWER_X, self.UPPER_X); new_y2 = np.random.uniform(self.LOWER_Y, self.UPPER_Y)
-            
-        self.new_no_coin_pose = get_posestamped(np.array([new_x2, new_y2, Z_PICK]), np.array([1,0,0,0]))
         
-        reset1_from_pose = getRigidTransform(self.target_pose.pose)
-        reset2_from_pose = getRigidTransform(self.no_coin_pose.pose)
+        if np.random.rand() < 0.5:
+            self.new_coin_pose = get_posestamped(np.array([new_x1, new_y1, Z_PICK]), np.array([1,0,0,0]))    
+            self.new_no_coin_pose = get_posestamped(np.array([new_x2, new_y2, Z_PICK]), np.array([1,0,0,0]))
+        else:
+            self.new_coin_pose = get_posestamped(np.array([new_x2, new_y2, Z_PICK]), np.array([1,0,0,0]))
+            self.new_no_coin_pose = get_posestamped(np.array([new_x1, new_y1, Z_PICK]), np.array([1,0,0,0]))
+        
+        reset1_from_pose = getRigidTransform(self.no_coin_pose.pose)
+        reset2_from_pose = getRigidTransform(self.target_pose.pose)
 
-        reset1_to_pose = getRigidTransform(self.new_coin_pose.pose)
-        reset2_to_pose = getRigidTransform(self.new_no_coin_pose.pose)
+        reset1_to_pose = getRigidTransform(self.new_no_coin_pose.pose)
+        reset2_to_pose = getRigidTransform(self.new_coin_pose.pose)
 
         # pickup from reset1_from_pose
         self.composed_pick_drop(reset1_from_pose, pick=True)
