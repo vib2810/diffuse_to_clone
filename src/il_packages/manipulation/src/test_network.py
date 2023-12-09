@@ -29,22 +29,28 @@ sys.path.append("/home/ros_ws/networks") # for torch.load to work
 
 class GripperActuator():
     gripped = False
-    GRASP_WIDTH = 0.041 # slightly lower than the real grasp width
+    GRASP_WIDTH = 0.041 # slightly lower than the real grasp width'
+    thresh_for_opening = {True: 0.0095, False: 0.001} # keys are gripped, values are threshold for opening
     # Gripper with call close_gripper when it is within 0.01m of the GRASP_WIDTH
     def __init__(self) -> None:
         pass
     
+    ### Change this logic!!
     def actuate_gripper(self, fa, next_gripper, curr_gripper_width):
-        # gripper actuate
-        if (next_gripper > (curr_gripper_width + 0.001)): # if gripper opening
+        
+        gripper_val = next_gripper
+        curr_gripper_val = curr_gripper_width
+        if (gripper_val > (curr_gripper_val + self.thresh_for_opening[self.gripped])):
+            print("Opening gripper, gripper_val: ", gripper_val, "curr_gripper_val: ", curr_gripper_val)
             self.gripped = False
-            fa.goto_gripper(next_gripper, block=False, speed=0.2)
-        elif (next_gripper - self.GRASP_WIDTH < 0.01) and (not self.gripped): # if not opening and close to GRASP_WIDTH
+            fa.goto_gripper(gripper_val, block=False, speed=0.2)
+        elif (gripper_val - self.GRASP_WIDTH < 0.01) and (not self.gripped): # if not opening and close to GRASP_WIDTH
+            print("Closing gripper, gripper_val: ", gripper_val, "curr_gripper_val: ", curr_gripper_val)
             fa.stop_gripper()
             fa.close_gripper()
             self.gripped = True
         elif not self.gripped: # General case
-            fa.goto_gripper(next_gripper, block=False, speed=0.2)
+            fa.goto_gripper(gripper_val, block=False, speed=0.2)
 
 class ModelTester:
     # Constants
@@ -52,7 +58,7 @@ class ModelTester:
     TERMINATE_POSE = get_posestamped(np.array([0.5, 0.2, 0.3]),
                                        np.array([1,0,0,0]))
     
-    ACTION_LIMIT_THRESHOLD = 0.6 # Safety threshold for actions
+    ACTION_LIMIT_THRESHOLD = 0.05 # Safety threshold for actions
     GOAL_THRESH = 0.05
     NUM_STEPS = 600
     
@@ -287,10 +293,18 @@ class ModelTester:
         print(f"euclid_dist_xyz: {euclid_dist_xyz}")
         print()
         
+        # if euclid dist is greater than 0.3, return vector in the direction of the action
         if(euclid_dist_xyz>self.ACTION_LIMIT_THRESHOLD):
-            print(f"Break due to action limits {euclid_dist_xyz} > {self.ACTION_LIMIT_THRESHOLD}")
-            return None, None, None
-        
+            unit_vect = np.array([next_pose.position.x - curr_pose.position.x, next_pose.position.y - curr_pose.position.y, next_pose.position.z - curr_pose.position.z])/euclid_dist_xyz
+            next_pose_xyz = np.array([curr_pose.position.x, curr_pose.position.y, curr_pose.position.z]) + self.ACTION_LIMIT_THRESHOLD*unit_vect
+            next_pose.position.x = next_pose_xyz[0]
+            next_pose.position.y = next_pose_xyz[1]
+            next_pose.position.z = next_pose_xyz[2]
+            
+            euclid_dist_xyz = np.sqrt((next_pose.position.x - curr_pose.position.x)**2 + (next_pose.position.y - curr_pose.position.y)**2 + (next_pose.position.z - curr_pose.position.z)**2)
+            print(f"euclid_dist_xyz clipped: {euclid_dist_xyz}")
+            print()
+
         # Return next action
         return next_pose, next_gripper, curr_gripper
     
@@ -305,7 +319,7 @@ if __name__ == "__main__":
     # remove the .pt extension
     model_name = model_name[:-3]
 
-    N_EVALS = 2
+    N_EVALS = 4
     print(f"Testing model {model_name} for {N_EVALS} iterations")
     
     model_tester = ModelTester(model_name)
