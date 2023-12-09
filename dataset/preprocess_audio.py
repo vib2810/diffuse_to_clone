@@ -58,6 +58,10 @@ def compute_spectrogram(audio_data, sample_rate, num_freq_bins, num_time_bins):
   # Sxx has first dim Freq, second dim time
   f, t, Sxx = signal.spectrogram(audio_data, sample_rate, scaling='spectrum', return_onesided=True)
   Sxx = np.array(Sxx)
+  
+  assert Sxx.shape[0]/num_freq_bins > 1, f"num_freq_bins {num_freq_bins} is more than Sxx.shape[0] {Sxx.shape[0]}"
+  assert Sxx.shape[1]/num_time_bins > 1, f"num_time_bins {num_time_bins} is more than Sxx.shape[1] {Sxx.shape[1]}"
+  
   # print(f"Shape of Sxx: {Sxx.shape}")
   # print(f"Min value: {np.min(Sxx)}, max value: {np.max(Sxx)}")
 

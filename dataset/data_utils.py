@@ -179,11 +179,14 @@ def parse_actions(actions_msg:list, mode='xyz_quat'):
 
     return actions
 
-def initialize_data(is_state_based=True):
+def initialize_data(is_state_based=True, is_audio_based=False):
         
     data = OrderedDict()
     if is_state_based is False:
         data["image_data_info"] = []
+        
+    if is_audio_based is True:
+        data["audio_data_info"] = []
         
     data['nagent_pos'] = []
     data['actions'] = []

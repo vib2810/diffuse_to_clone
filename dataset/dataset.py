@@ -44,6 +44,7 @@ class DiffusionDataset(torch.utils.data.Dataset):
         
         self.dataset_path = dataset_path
         self.is_state_based = is_state_based
+        self.is_audio_based = is_audio_based
         
         # Assert that there is an Images folder if is_state_based==False
         if self.is_state_based==False:
@@ -56,8 +57,7 @@ class DiffusionDataset(torch.utils.data.Dataset):
         self.files = [os.path.join(dataset_path, f) for f in os.listdir(dataset_path) if f.endswith('.pkl')]
         # sort files in ascending order
         self.files.sort(key=lambda f: int(''.join(filter(str.isdigit, f))))
-        train_data = initialize_data(is_state_based=is_state_based)
-
+        train_data = initialize_data(is_state_based=is_state_based, is_audio_based=is_audio_based)
         
         for idx, file in enumerate(self.files):
             dataset_root = pickle.load(open(file, 'rb'))
@@ -182,11 +182,11 @@ class DiffusionDataset(torch.utils.data.Dataset):
             
             file_path = os.path.join(self.dataset_path, "Audio", str(file_idx), str(data_idx)+".npy")
             audio = np.load(file_path) # shape (32000, 1)
-            print("Shape of audio: ", audio.shape)
+            # print("Shape of audio: ", audio.shape)
 
             # Process each audio individually
             audio = process_audio(audio, sample_rate=16000, num_freq_bins=100, num_time_bins=57) # shape (57, 100)
-            audio_data[idx] = audio
+            audio_data[idx] = torch.tensor(audio)
 
         # Stack the processed audio into a batch
         audio_data = torch.stack(audio_data, dim=0) # shape (N,57,100)

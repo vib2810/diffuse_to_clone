@@ -22,6 +22,7 @@ class ModelTrainer:
         self.train_params = train_params
         self.data_params = data_params
         self.is_state_based = data_params["is_state_based"]
+        self.is_audio_based = data_params["is_audio_based"]
         self.device = torch.device(train_params["device"]) if torch.cuda.is_available() else torch.device("cpu")
 
         # Initialize the writer
@@ -40,7 +41,8 @@ class ModelTrainer:
             pred_horizon=data_params['pred_horizon'],
             obs_horizon=data_params['obs_horizon'],
             action_horizon=data_params['action_horizon'],
-            is_state_based=self.is_state_based
+            is_state_based=self.is_state_based,
+            is_audio_based=self.is_audio_based
         )
         print("################ Train Dataset loaded #################")
 
@@ -50,7 +52,8 @@ class ModelTrainer:
             pred_horizon=data_params['pred_horizon'],
             obs_horizon=data_params['obs_horizon'],
             action_horizon=data_params['action_horizon'],
-            is_state_based=self.is_state_based
+            is_state_based=self.is_state_based,
+            is_audio_based=self.is_audio_based
         )
         print("################ Eval Dataset loaded #################")
         
