@@ -86,7 +86,7 @@ class ModelTrainer:
         image_dim = 512 if not self.is_state_based else 0
         self.train_params["obs_dim"] = dataset.state_dim + image_dim
         self.train_params["ac_dim"] = dataset.action_dim
-        self.train_params["num_traj"] = len(self.dataloader)
+        self.train_params["num_batches"] = len(self.dataloader)
         self.train_params["obs_horizon"] = data_params["obs_horizon"]
         self.train_params["pred_horizon"] = data_params["pred_horizon"]
         self.train_params["action_horizon"] = data_params["action_horizon"]

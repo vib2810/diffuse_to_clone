@@ -214,12 +214,12 @@ def get_stacked_sample(observations, terminals, seq_len, start_idx):
     end_idx = start_idx + seq_len
     # check if there is a terminal state between start and end, if yes then shift the start_idx
     # dataloader repeats the first observation for missing_context times in such cases
-    for idx in range(start_idx, end_idx - 1):
+    for idx in range(start_idx, end_idx):
         if terminals[idx]:
             start_idx = idx + 1
     missing_context = seq_len - (end_idx - start_idx)
     
-    if start_idx < 0 or missing_context > 0:
+    if missing_context > 0:
         # frames = [np.zeros_like(observations[0])] * missing_context
         frames = []
         # repeat the first observation for missing_context times
@@ -239,7 +239,7 @@ def get_stacked_action(actions, terminals, seq_len, start_idx):
     """
     end_idx = start_idx + seq_len
     # check if there is a terminal state between start and end
-    for idx in range(start_idx, end_idx - 1):
+    for idx in range(start_idx, end_idx):
         if terminals[idx]:
             end_idx = idx + 1
             break
