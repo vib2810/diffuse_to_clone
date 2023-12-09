@@ -29,7 +29,7 @@ class FCTrainer(nn.Module):
         self.device = train_params["device"]
         self.num_epochs = train_params["num_epochs"]
         self.lr = train_params["learning_rate"]
-        self.num_traj = train_params["num_traj"]
+        self.num_batches = train_params["num_batches"]
         self.stats = train_params["stats"]
         self.is_state_based = train_params["is_state_based"]
         self.device = device
