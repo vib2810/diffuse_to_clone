@@ -46,8 +46,6 @@ RUN /bin/bash -c "source /opt/ros/noetic/setup.bash; cd /home/ros_ws; rosdep ins
 RUN /bin/bash -c "source /opt/ros/noetic/setup.bash; cd /home/ros_ws; catkin_make"
 
 RUN echo "source /home/ros_ws/devel/setup.bash" >> ~/.bashrc
-RUN echo "alias nvidia-smi='echo \"GPU is not supported in docker\"'" >> ~/.bashrc
-
 
 # set workdir as home/ros_ws
 WORKDIR /home/ros_ws

@@ -10,7 +10,7 @@ import torch.nn as nn
 import numpy as np
 from networks.model_utils import normalize_data, unnormalize_data
 from dataset.data_utils import *
-from diffusion_model_vision import *
+from networks.diffusion_model_utils import *
 
 class FCTrainer(nn.Module):
     def __init__(self,
@@ -43,7 +43,7 @@ class FCTrainer(nn.Module):
         
         # create network object
         self.mean_net = self.make_network(
-            input_size=self.obs_dim*self.obs_horizon,
+            input_size=self.obs_dim,
             output_size=self.action_dim*self.pred_horizon,
             n_layers=train_params["n_layers"],
             size=train_params["hidden_size"],

@@ -158,7 +158,9 @@ class DiffusionDataset(torch.utils.data.Dataset):
             
             file_path = os.path.join(self.dataset_path, "Images", str(file_idx), str(data_idx)+".png")
             image = cv2.imread(file_path) # shape (480, 640, 3)
-            
+            if image is None:
+                print("Error reading image: ", file_path)
+                continue
             # Transform each image individually
             image = self.image_transforms(image) # shape (3, 224, 224)
             image_data[idx] = image
@@ -236,7 +238,7 @@ class DiffusionDataset(torch.utils.data.Dataset):
 
 if __name__=="__main__":
     # Just for testing
-    dataset = "converted_data_block_pick"
+    dataset = "vision_audio_first"
     dataset_path = '/home/ros_ws/dataset/data/'+dataset+'/train'
     assert os.path.exists(dataset_path), "Dataset path does not exist"
     dataset = DiffusionDataset(dataset_path=dataset_path,

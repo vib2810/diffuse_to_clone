@@ -85,9 +85,14 @@ class ModelTrainer:
         )  
         eval_dataset.print_size("eval")
 
-        # Add info to train_params
-        image_dim = 512 if not self.is_state_based else 0
-        self.train_params["obs_dim"] = dataset.state_dim + image_dim
+        # Construct input dims to model
+        obs_dim = dataset.state_dim*data_params["obs_horizon"]
+        if not self.is_state_based:
+            obs_dim += 512*data_params["obs_horizon"]
+        if self.is_audio_based:
+            obs_dim += 8*33 # 8 is final number of channels, 33 output of audio encoder
+        
+        self.train_params["obs_dim"] = obs_dim
         self.train_params["ac_dim"] = dataset.action_dim
         self.train_params["num_batches"] = len(self.dataloader)
         self.train_params["obs_horizon"] = data_params["obs_horizon"]
@@ -95,6 +100,7 @@ class ModelTrainer:
         self.train_params["action_horizon"] = data_params["action_horizon"]
         self.train_params["stats"] = self.stats
         self.train_params["is_state_based"] = self.is_state_based
+        self.train_params["is_audio_based"] = self.is_audio_based
 
         # Initialize model
         if str(self.train_params["model_class"]).find("DiffusionTrainer") != -1:
@@ -115,7 +121,7 @@ class ModelTrainer:
         
         self.best_eval_loss = 1e10
 
-    def train_model(self, test_eval_split_ratio=0.1):
+    def train_model(self):
         global_step = 0
         for epoch_idx in range(self.train_params["num_epochs"]):
             epoch_loss = list()
@@ -141,12 +147,17 @@ class ModelTrainer:
                     nimage = None
                 else:
                     nimage = nbatch['image'][:,:self.train_params['obs_horizon']].to(self.device)
+                
+                if(self.is_audio_based):
+                    naudio = nbatch['audio'][:,:self.train_params['obs_horizon']].to(self.device)
+                else:
+                    naudio = None
             
                 nagent_pos = nbatch['nagent_pos'][:,:self.train_params['obs_horizon']].to(self.device)
                 naction = nbatch['actions'].to(self.device)
                 B = nagent_pos.shape[0]
 
-                loss = self.model.train_model_step(nimage, nagent_pos, naction)
+                loss = self.model.train_model_step(nimage, nagent_pos, naudio, naction)
 
                 # logging
                 loss_cpu = loss
@@ -191,12 +202,17 @@ class ModelTrainer:
                 nimage = None
             else:
                 nimage = nbatch['image'][:,:self.train_params['obs_horizon']].to(self.device)
+            
+            if(self.is_audio_based):
+                naudio = nbatch['audio'][:,:self.train_params['obs_horizon']].to(self.device)
+            else:
+                naudio = None
                 
             nagent_pos = nbatch['nagent_pos'][:,:self.train_params['obs_horizon']].to(self.device)
             naction = nbatch['actions'].to(self.device)
             B = nagent_pos.shape[0]
 
-            loss = self.model.eval_model(nimage, nagent_pos, naction)
+            loss = self.model.eval_model(nimage, nagent_pos, naudio, naction)
             total_loss += loss*B
         
         return total_loss/len(self.eval_dataloader.dataset)

@@ -272,6 +272,8 @@ def get_stacked_samples(observations, actions,
     Returns a batch of stacked samples
         - Observations: (batch_size, ob_seq_len, ob_dim)
         - Actions: (batch_size, ac_seq_len, ac_dim)
+        - Image_data_info: (batch_size, ob_seq_len, 2)
+        - Audio_data_info: (batch_size, 1, 2)
     Padding:
         - Observations: zero padding at the start
         - Actions: last action padding at the end
@@ -296,7 +298,7 @@ def get_stacked_samples(observations, actions,
             stacked_image_data_info.append(im)
 
         if audio_data_info is not None:
-            au = get_stacked_sample(audio_data_info, terminals, ob_seq_len, start_idx)
+            au = get_stacked_sample(audio_data_info, terminals, 1, start_idx)
             stacked_audio_data_info.append(au)
         
     if image_data_info is None and audio_data_info is None:
