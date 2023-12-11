@@ -35,10 +35,10 @@ if __name__ == "__main__":
 
     # Make the train params
     train_params = {
-        "batch_size": 128,
-        "eval_batch_size": 128,
-        "num_workers": 4,
-        "num_epochs": 400,
+        "batch_size": 256,
+        "eval_batch_size": 256,
+        "num_workers": 8,
+        "num_epochs": 700,
         "learning_rate": 1e-4,
         "loss": nn.functional.mse_loss,
         'model_class': DiffusionTrainer,
