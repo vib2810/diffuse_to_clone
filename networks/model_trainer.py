@@ -90,7 +90,7 @@ class ModelTrainer:
         if not self.is_state_based:
             obs_dim += 512*data_params["obs_horizon"]
         if self.is_audio_based:
-            obs_dim += 8*33 # 8 is final number of channels, 33 output of audio encoder
+            obs_dim += 8*(57 - 24) # 8 is final number of channels, 57 is number of audio frames, subtract 24 for 4 1D conv layers
         
         self.train_params["obs_dim"] = obs_dim
         self.train_params["ac_dim"] = dataset.action_dim
