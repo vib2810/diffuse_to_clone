@@ -120,6 +120,16 @@ class ModelTrainer:
         for epoch_idx in range(self.train_params["num_epochs"]):
             epoch_loss = list()
             print("-----Epoch {}-----".format(epoch_idx))
+            
+            # evaluate model
+            eval_loss = self.evaluate_model()
+            print("Eval loss: {}".format(eval_loss))
+            self.writer.add_scalar('Loss/eval', eval_loss, global_step)
+            if eval_loss < self.best_eval_loss:
+                self.best_model_epoch = epoch_idx
+                self.best_eval_loss = eval_loss
+                self.save_model()
+                
             # batch loop
             for nbatch in self.dataloader:  
                 # data normalized in dataset
@@ -151,13 +161,6 @@ class ModelTrainer:
             
             # evaluate model on test data
             self.model.run_after_epoch()
-            eval_loss = self.evaluate_model()
-            print("Eval loss: {}".format(eval_loss))
-            self.writer.add_scalar('Loss/eval', eval_loss, global_step)
-            if eval_loss < self.best_eval_loss:
-                self.best_model_epoch = epoch_idx
-                self.best_eval_loss = eval_loss
-                self.save_model()
                 
     def save_model(self, step=None):
         save_dict = {}

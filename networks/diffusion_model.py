@@ -57,10 +57,15 @@ class DiffusionTrainer(nn.Module):
             input_dim=self.action_dim,
             global_cond_dim=self.obs_dim*self.obs_horizon
         )
+        self.noise_pred_net_eval = ConditionalUnet1D(
+            input_dim=self.action_dim,
+            global_cond_dim=self.obs_dim*self.obs_horizon
+        )
         
         if(not self.is_state_based):
             # Get vision encoder
             self.vision_encoder = get_vision_encoder('resnet18', weights='IMAGENET1K_V2')
+            self.vision_encoder_eval = get_vision_encoder('resnet18', weights='IMAGENET1K_V2')
 
             # the final arch has 2 parts
             self.nets = nn.ModuleDict({
@@ -68,8 +73,8 @@ class DiffusionTrainer(nn.Module):
                 'noise_pred_net': self.noise_pred_net
             })
             self.inference_nets = nn.ModuleDict({
-                'vision_encoder': self.vision_encoder,
-                'noise_pred_net': self.noise_pred_net
+                'vision_encoder': self.vision_encoder_eval,
+                'noise_pred_net': self.noise_pred_net_eval
             })
         
         else:
@@ -77,7 +82,7 @@ class DiffusionTrainer(nn.Module):
                 'noise_pred_net': self.noise_pred_net
             })
             self.inference_nets = nn.ModuleDict({
-                'noise_pred_net': self.noise_pred_net
+                'noise_pred_net': self.noise_pred_net_eval
             })
 
         # for this demo, we use DDPMScheduler with 100 diffusion iterations
@@ -101,6 +106,7 @@ class DiffusionTrainer(nn.Module):
         
         # put network on device
         _ = self.nets.to(self.device)
+        _ = self.inference_nets.to(self.device)
         
         # convert stats to tensors and put on device
         for key in self.stats.keys():
