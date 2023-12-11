@@ -15,7 +15,7 @@ import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 from dataset.dataset import DiffusionDataset
 from dataset.data_utils import *
-from diffusion_model_vision import *
+from networks.diffusion_model_utils import *
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 from diffusers.training_utils import EMAModel
@@ -50,16 +50,17 @@ class DiffusionTrainer(nn.Module):
         self.num_batches = train_params["num_batches"]
         self.stats = train_params["stats"]
         self.is_state_based = train_params["is_state_based"]
+        self.is_audio_based = train_params["is_audio_based"]
         self.device = device
         
         # create network object
         self.noise_pred_net = ConditionalUnet1D(
             input_dim=self.action_dim,
-            global_cond_dim=self.obs_dim*self.obs_horizon
+            global_cond_dim=self.obs_dim
         )
         self.noise_pred_net_eval = ConditionalUnet1D(
             input_dim=self.action_dim,
-            global_cond_dim=self.obs_dim*self.obs_horizon
+            global_cond_dim=self.obs_dim
         )
         
         if(not self.is_state_based):
@@ -76,6 +77,14 @@ class DiffusionTrainer(nn.Module):
                 'vision_encoder': self.vision_encoder_eval,
                 'noise_pred_net': self.noise_pred_net_eval
             })
+            
+            if self.is_audio_based:
+                self.audio_encoder = get_audio_encoder(audio_steps=57, audio_bins=100)
+                self.audio_encoder_eval = get_audio_encoder(audio_steps=57, audio_bins=100)
+                # add to module dict
+                self.nets['audio_encoder'] = self.audio_encoder
+                self.inference_nets['audio_encoder'] = self.audio_encoder_eval
+                
         
         else:
             self.nets = nn.ModuleDict({
@@ -146,7 +155,31 @@ class DiffusionTrainer(nn.Module):
         # self.nets.eval()
         self.inference_nets.eval()
         
-    def get_all_actions_normalized(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, sampler = "ddim"):
+    def get_obs_cond(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naudio: torch.Tensor):
+        if self.is_state_based:
+            return torch.cat([nagent_pos], dim=-1).flatten(start_dim=1)
+        else:
+            # encoder vision features
+            image_features = self.inference_nets['vision_encoder'](
+                nimage.flatten(end_dim=1)) # shape (B*obs_horizon, D)
+            image_features = image_features.reshape(
+                *nimage.shape[:2],-1) # (B,obs_horizon,D)
+
+            # concatenate vision feature and low-dim obs
+            obs_features = torch.cat([image_features, nagent_pos], dim=-1)
+            obs_cond = obs_features.flatten(start_dim=1) # (B, obs_horizon * obs_dim)
+            print("Obs cond shape: ", obs_cond.shape)
+            # Add audio features if audio based
+            if self.is_audio_based:
+                # encoder vision features
+                audio_features = self.inference_nets['audio_encoder'](
+                    naudio.flatten(end_dim=1)) # shape (B, audio_dim)
+                print("Audio features shape: ", audio_features.shape)
+                
+                obs_cond = torch.cat([obs_cond, audio_features], dim=-1)
+            return obs_cond
+                
+    def get_all_actions_normalized(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naudio: torch.Tensor, sampler = "ddim"):
         """
         Sampler: either ddpm or ddim
         Returns the actions for the entire horizon (self.pred_horizon)
@@ -158,23 +191,7 @@ class DiffusionTrainer(nn.Module):
             return None
         
         with torch.no_grad():
-            if(not self.is_state_based):
-                # encoder vision features
-                image_features = self.inference_nets['vision_encoder'](
-                    nimage.flatten(end_dim=1))
-                image_features = image_features.reshape(
-                    *nimage.shape[:2],-1)
-                # (B,obs_horizon,D)
-
-                # concatenate vision feature and low-dim obs
-                obs_features = torch.cat([image_features, nagent_pos], dim=-1)
-                obs_cond = obs_features.flatten(start_dim=1)
-                # (B, obs_horizon * obs_dim)
-
-            else:
-                obs_features = torch.cat([nagent_pos], dim=-1)
-                obs_cond = obs_features.flatten(start_dim=1)
-                # (B, obs_horizon * obs_dim)        
+            obs_cond = self.get_obs_cond(nimage, nagent_pos, naudio)    
                 
             B = nagent_pos.shape[0]   
             # initialize action from Guassian noise
@@ -211,7 +228,7 @@ class DiffusionTrainer(nn.Module):
     def initialize_mpc_action(self):
         self.mpc_actions = []
 
-    def get_mpc_action(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, sampler = "ddim"):
+    def get_mpc_action(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naudio: torch.Tensor, sampler = "ddim"):
         """
         Assumes data is not normalized
         Meant to be called for live control of the robot
@@ -236,26 +253,13 @@ class DiffusionTrainer(nn.Module):
         return action.squeeze(0).cpu().numpy()
             
         
-    def train_model_step(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naction: torch.Tensor):
-        # print input dims
-        if(not self.is_state_based):
-            # encoder vision features
-            image_features = self.nets['vision_encoder'](
-                nimage.flatten(end_dim=1))
-            image_features = image_features.reshape(
-                *nimage.shape[:2],-1)
-            # (B,obs_horizon,D)
-
-            # concatenate vision feature and low-dim obs
-            obs_features = torch.cat([image_features, nagent_pos], dim=-1)
-            obs_cond = obs_features.flatten(start_dim=1)
-            # (B, obs_horizon * obs_dim)
-
-        else:
-            obs_features = torch.cat([nagent_pos], dim=-1)
-            obs_cond = obs_features.flatten(start_dim=1)
-            # (B, obs_horizon * obs_dim)
-
+    def train_model_step(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naudio: torch.Tensor, naction: torch.Tensor):
+        """
+        Input: nimage, nagent_pos, naction in the dataset [normalized inputs]
+        Train the model for one step
+        Returns the loss        
+        """
+        obs_cond = self.get_obs_cond(nimage, nagent_pos, naudio)
         B = naction.shape[0]
         
         # sample noise to add to actions
@@ -296,12 +300,12 @@ class DiffusionTrainer(nn.Module):
     def run_after_epoch(self):
         self.ema.copy_to(self.inference_nets.parameters())
     
-    def eval_model(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naction: torch.Tensor, return_actions=False, sampler="ddim"):
+    def eval_model(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naudio: torch.Tensor, naction: torch.Tensor, return_actions=False, sampler="ddim"):
         """
         Input: nimage, nagent_pos, naction in the dataset [normalized inputs]
         Returns the MSE loss between the normalized model actions and the normalized actions in the dataset
         """
-        model_actions_ddim = self.get_all_actions_normalized(nimage, nagent_pos, sampler=sampler) # (B, pred_horizon, action_dim)
+        model_actions_ddim = self.get_all_actions_normalized(nimage, nagent_pos, naudio, sampler=sampler) # (B, pred_horizon, action_dim)
         loss_ddim = self.loss_fn(model_actions_ddim, naction)
         loss = loss_ddim
         if return_actions:

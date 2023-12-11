@@ -179,11 +179,14 @@ def parse_actions(actions_msg:list, mode='xyz_quat'):
 
     return actions
 
-def initialize_data(is_state_based=True):
+def initialize_data(is_state_based=True, is_audio_based=False):
         
     data = OrderedDict()
     if is_state_based is False:
         data["image_data_info"] = []
+        
+    if is_audio_based is True:
+        data["audio_data_info"] = []
         
     data['nagent_pos'] = []
     data['actions'] = []
@@ -257,17 +260,20 @@ def get_stacked_action(actions, terminals, seq_len, start_idx):
         return actions[start_idx:end_idx] # shape (seq_len, ob_dim)
 
 def get_stacked_samples(observations, actions, 
-                        image_data_info,
+                        image_data_info, audio_data_info,
                         terminals, ob_seq_len, ac_seq_len,
                         batch_size, start_idxs=None):
     """
     Observations: (N, ob_dim)
     Actions: (N, ac_dim)
     Image_data_info: (N, 2)
+    Audio_data_info: (N, 2)
     Terminals: (N, 1)
     Returns a batch of stacked samples
         - Observations: (batch_size, ob_seq_len, ob_dim)
         - Actions: (batch_size, ac_seq_len, ac_dim)
+        - Image_data_info: (batch_size, ob_seq_len, 2)
+        - Audio_data_info: (batch_size, 1, 2)
     Padding:
         - Observations: zero padding at the start
         - Actions: last action padding at the end
@@ -278,6 +284,7 @@ def get_stacked_samples(observations, actions,
     stacked_observations = []
     stacked_actions = []
     stacked_image_data_info = []
+    stacked_audio_data_info = []
         
     ### TODO: For loop is not needed here!
     for start_idx in start_idxs:
@@ -289,9 +296,17 @@ def get_stacked_samples(observations, actions,
         if image_data_info is not None:
             im = get_stacked_sample(image_data_info, terminals, ob_seq_len, start_idx)
             stacked_image_data_info.append(im)
+
+        if audio_data_info is not None:
+            au = get_stacked_sample(audio_data_info, terminals, 1, start_idx)
+            stacked_audio_data_info.append(au)
         
-    if image_data_info is None:
-        return np.stack(stacked_observations), np.stack(stacked_actions), None
+    if image_data_info is None and audio_data_info is None:
+        return np.stack(stacked_observations), np.stack(stacked_actions), None, None
+    elif image_data_info is None:
+        return np.stack(stacked_observations), np.stack(stacked_actions), None, np.stack(stacked_audio_data_info)    
+    elif audio_data_info is None:
+        return np.stack(stacked_observations), np.stack(stacked_actions), np.stack(stacked_image_data_info), None
     
     # (batch_size, seq_len, ob_dim), (batch_size, ac_seq_len, ac_dim), (batch_size, seq_len, 2)
-    return np.stack(stacked_observations), np.stack(stacked_actions), np.stack(stacked_image_data_info)
+    return np.stack(stacked_observations), np.stack(stacked_actions), np.stack(stacked_image_data_info), np.stack(stacked_audio_data_info)

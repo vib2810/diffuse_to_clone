@@ -19,6 +19,7 @@ from tqdm.auto import tqdm
 from torch.utils.tensorboard import SummaryWriter
 import sys
 sys.path.append("/home/ros_ws/")
+from audio_cnn import AudioEncoder
 
 
 #@markdown ### **Network**
@@ -370,3 +371,7 @@ def get_vision_encoder(
     vision_encoder = replace_bn_with_gn(vision_encoder)
 
     return vision_encoder
+
+def get_audio_encoder(audio_steps, audio_bins):
+    vision_audio_encoder = AudioEncoder(audio_steps, audio_bins)
+    return vision_audio_encoder

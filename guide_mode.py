@@ -38,6 +38,7 @@ if __name__ == "__main__":
             fa.stop_skill()
             fa.reset_joints()
             fa.close_gripper()
+            print(f"Current gripper width: {fa.get_gripper_width()}")
             fa.open_gripper()
             break
 

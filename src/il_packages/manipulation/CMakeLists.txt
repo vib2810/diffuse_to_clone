@@ -46,6 +46,16 @@ catkin_install_python(PROGRAMS
 )
 
 catkin_install_python(PROGRAMS
+  src/data_class_two_blocks.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+catkin_install_python(PROGRAMS
+  src/data_class_choose_coins.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+catkin_install_python(PROGRAMS
   src/test_network.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

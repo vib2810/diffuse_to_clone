@@ -29,6 +29,7 @@ if __name__ == "__main__":
         "dataset_path": f'/home/ros_ws/dataset/data/{dataset_name}/train',
         'eval_dataset_path': f'/home/ros_ws/dataset/data/{dataset_name}/eval',
         "is_state_based": False,
+        "is_audio_based": True,
         "pred_horizon": 1,  # for FC model
         "obs_horizon": 2,
         "action_horizon": 1, # for FC model
