@@ -46,6 +46,7 @@ class GripperActuator():
             fa.close_gripper()
             self.gripped = True
         elif not self.gripped: # General case
+            print("Gripper General Case, next_gripper: ", next_gripper)
             fa.goto_gripper(next_gripper, block=False, speed=0.2)
         
 class Data():
@@ -151,7 +152,8 @@ class Data():
     
     FINAL_GRIPPER_WIDTH = 0.06 # gripper width to terminate FSM, between, less than GRASP_WIDTH+0.01
     NORM_DIFF_TOL = 0.035
-    Z_ABS_TOL = 0.0035
+    Z_ABS_TOL_UP = 0.0035
+    Z_ABS_TOL_DOWN = 0.004
 
     def inner_FSM(self, curr_pose: Pose, curr_gripper_width: float, go_to_pose: Pose, grasp=True, pre_hover_height=0.1, post_hover_height=0.1):
         """
@@ -193,7 +195,7 @@ class Data():
             # check if arrived at pick pose
             print("Z Diff: ", abs(curr_pose.position.z - Z_PICK))
             
-            if abs(curr_pose.position.z - Z_PICK) < self.Z_ABS_TOL:
+            if abs(curr_pose.position.z - Z_PICK) < self.Z_ABS_TOL_DOWN:
                 if grasp:
                     self.current_toy_state = 2
                 else:
@@ -227,7 +229,7 @@ class Data():
             norm_diff = self.get_current_pose_norm(hover_pose, curr_pose)
             print("Norm Diff: ", norm_diff)
             
-            if abs(curr_pose.position.z - hover_pose.pose.position.z) < self.Z_ABS_TOL:
+            if abs(curr_pose.position.z - hover_pose.pose.position.z) < self.Z_ABS_TOL_UP:
                 self.current_toy_state = 0
                 print("Inner: Arrived at post hover pose")
                 return None, None
@@ -552,14 +554,179 @@ class Data():
 
             self.reset_environment()
             
-    def goto_hover_pose(self, given_pose: RigidTransform):
+    def audio_classes_FSM(self, curr_pose: Pose, curr_gripper_width: float, go_to_pose: Pose = None):
+        """
+        Takes as input the current robot joints, pose and gripper width
+        Returns the next joint position for the task
+        Returns: next_action(7x1), gripper_width
+        
+        If given a pose then go to that pose -> Audio of robot moving
+        Else open gripper -> Audio of coins and no coins dropping
+        """
+        if go_to_pose is not None:
+            # check if arrived at pose
+            norm_diff = self.get_current_pose_norm(go_to_pose, curr_pose)
+            print("Norm Diff: ", norm_diff)
+
+            if norm_diff < self.NORM_DIFF_TOL:
+                print("Arrived at pose")
+                return None, None
+            
+            # plan to pose
+            next_action = self.get_next_pose_interp(go_to_pose.pose, curr_pose)
+            return next_action, curr_gripper_width
+        
+        else: # ungrasp
+            # check if current gripper width is more than FINAL_GRIPPER_WIDTH
+            print("Gripper Width: ", curr_gripper_width)    
+            
+            if curr_gripper_width > 0.07:
+                print("Gripper Opened")
+                return None, None
+            
+            # open gripper for 0.01 m 
+            next_gripper_width = curr_gripper_width + 0.01
+            return curr_pose, next_gripper_width
+            
+    def collect_audio_classes(self, expt_data_dict):
+        self.object_pose = expt_data_dict["object_pose"]
+        self.class_id = expt_data_dict["class_id"]
+        
+        expt_folder = '/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"]
+
+        if not os.path.exists(expt_folder):
+            os.makedirs(expt_folder)
+
+        if not self.got_audio:
+            # wait for 3 seconds to get audio
+            print("Waiting for audio")
+            rospy.sleep(3)
+            
+        if self.got_audio == False:
+            print("No audio received")
+            sys.exit(0)
+            
+        # reset to home position
+        self.fa.reset_joints()
+        self.fa.open_gripper()
+
+        for i in range (expt_data_dict["n_trajectories"]):
+            print(f"--------------Recording Trajectory {i}--------------")
+
+            # set different seeds when recording train and eval trajectories
+            if expt_data_dict["eval_mode"]:
+                np.random.seed(1234*i)
+            else:
+                # set seed based on time
+                np.random.seed(int(rospy.Time.now().to_time()))
+               
+            # check state
+            if self.class_id == 0 or self.class_id == 1:
+                # 0 is coins, 1 is no coins
+                self.composed_pick_drop(getRigidTransform(self.object_pose.pose), pick=True, randomize_hover_height=True)
+                go_to_pose = None
+            elif self.class_id == 2:
+                # 2 is audio of robot moving
+                self.fa.reset_joints()
+                go_to_pose = get_posestamped(np.array([0.5, 0, 0.3]),
+                                       np.array([1, 0, 0, 0]))
+            else:
+                print("Wrong class_id for audio class")
+            
+            
+            rate = rospy.Rate(EXPERT_RECORD_FREQUENCY)
+            self.fa.goto_pose(self.fa.get_pose(), duration=120, dynamic=True, buffer_time=10,
+                cartesian_impedances=FC.DEFAULT_TRANSLATIONAL_STIFFNESSES[:3] + FC.DEFAULT_ROTATIONAL_STIFFNESSES)
+        
+            # Variables for recording data
+            audios = []
+            
+            # Start recording data
+            counter = 0
+            init_time = rospy.Time.now().to_time()
+            print("Start Recording Trajectory: ", i)
+            while not rospy.is_shutdown():
+                curr_joints = self.fa.get_joints()
+                curr_pose_rigid = self.fa.get_pose()
+                curr_pose = get_posestamped(curr_pose_rigid.translation, [curr_pose_rigid.quaternion[1], curr_pose_rigid.quaternion[2], curr_pose_rigid.quaternion[3], curr_pose_rigid.quaternion[0]]).pose
+                curr_gripper_width = self.fa.get_gripper_width()
+                next_pose, next_gripper = self.audio_classes_FSM(curr_pose, curr_gripper_width, go_to_pose)
+                if next_pose is None and next_gripper is None:
+                    break
+
+                timestamp = rospy.Time.now().to_time() - init_time
+                
+                # Record data
+                if self.class_id == 0 or self.class_id == 1:
+                    if timestamp > 0.4 and timestamp < 2.4:
+                        print("Recording audio")
+                        audios.append(self.audio_data)
+                else:
+                    print("Recording audio")
+                    audios.append(self.audio_data)
+                
+                traj_gen_proto_msg = PosePositionSensorMessage(
+                    id=counter, timestamp=timestamp, 
+                    position=[next_pose.position.x, next_pose.position.y, next_pose.position.z],
+                    quaternion=[next_pose.orientation.w, next_pose.orientation.x, next_pose.orientation.y, next_pose.orientation.z]
+                )
+                fb_ctrlr_proto = CartesianImpedanceSensorMessage(
+                    id=counter, timestamp=timestamp,
+                    translational_stiffnesses=FC.DEFAULT_TRANSLATIONAL_STIFFNESSES[:3],
+                    rotational_stiffnesses=FC.DEFAULT_ROTATIONAL_STIFFNESSES
+                )
+                ros_msg = make_sensor_group_msg(
+                    trajectory_generator_sensor_msg=sensor_proto2ros_msg(
+                        traj_gen_proto_msg, SensorDataMessageType.POSE_POSITION),
+                    feedback_controller_sensor_msg=sensor_proto2ros_msg(
+                        fb_ctrlr_proto, SensorDataMessageType.CARTESIAN_IMPEDANCE)
+                )
+                self.pub.publish(ros_msg)
+
+                self.gripper_actuator.actuate_gripper(self.fa, next_gripper, curr_gripper_width)
+                counter += 1
+                rate.sleep()
+                
+            start_time = rospy.Time.now().to_time()
+            while rospy.Time.now().to_time() - init_time < 2:
+                if rospy.Time.now().to_time() - start_time > 0.1:
+                    print(f"Waiting for audio to finish recording: {rospy.Time.now().to_time() - init_time}")
+                    audios.append(self.audio_data)
+                    start_time = rospy.Time.now().to_time()
+            
+            # Stop the skill
+            # Alternatively can call fa.stop_skill()
+            term_proto_msg = ShouldTerminateSensorMessage(timestamp=rospy.Time.now().to_time() - init_time, should_terminate=True)
+            ros_msg = make_sensor_group_msg(
+                termination_handler_sensor_msg=sensor_proto2ros_msg(
+                    term_proto_msg, SensorDataMessageType.SHOULD_TERMINATE)
+                )
+            
+            self.pub.publish(ros_msg)
+            self.fa.stop_skill()
+                
+            audio_folder = '/home/ros_ws/logs/recorded_trajectories/'+ expt_data_dict["experiment_name"] + '/' + str(self.class_id)
+            if not os.path.exists(audio_folder):
+                os.makedirs(audio_folder)
+            
+            for i in range(len(audios)):
+                data_num = len(os.listdir(audio_folder))
+                np.save(os.path.join(audio_folder, str(data_num) + ".npy"), audios[i])
+                print("Saved audio: ", str(data_num) + ".npy")
+            
+    def goto_hover_pose(self, given_pose: RigidTransform, randomize_hover_height=False):
         hover_pose = copy.deepcopy(given_pose)
-        hover_pose.translation[2] += 0.1
+        if randomize_hover_height:
+            hover_pose.translation[2] += np.random.randint(low=5, high=12)/100
+        else:
+            hover_pose.translation[2] += 0.1
+            
+        print("Hover Pose: ", hover_pose.translation)
         self.fa.goto_pose(hover_pose, duration=3)
     
-    def composed_pick_drop(self, given_pose: RigidTransform, pick=True):
+    def composed_pick_drop(self, given_pose: RigidTransform, pick=True, randomize_hover_height=False):
         # goto hover pose above given pose
-        self.goto_hover_pose(given_pose)
+        self.goto_hover_pose(given_pose, randomize_hover_height)
         
         # goto given pose
         self.fa.goto_pose(given_pose, duration=3)
@@ -571,7 +738,7 @@ class Data():
             self.fa.open_gripper()
         
         # reset to hover pose
-        self.goto_hover_pose(given_pose)
+        self.goto_hover_pose(given_pose, randomize_hover_height)
 
     # Boundaries for randomly placing the block to after reset
     LOWER_X, LOWER_Y = 0.4, -0.2
@@ -695,22 +862,29 @@ if __name__ == "__main__":
 
     # Reset Joints
     data.reset_joints()
+    data.fa.open_gripper()
 
     # Collect trajectories
     expt_data_dict = {}
     expt_data_dict["experiment_name"] = experiment_name
     expt_data_dict["n_trajectories"] = num_trajs_to_collect
     expt_data_dict["eval_mode"] = eval_mode
-    expt_data_dict["coin_pose"] = get_posestamped(np.array([0.47739821, -0.2, Z_PICK]),
+    # expt_data_dict["coin_pose"] = get_posestamped(np.array([0.47739821, -0.2, Z_PICK]),
+    #                                               np.array([1,0,0,0]))
+    # expt_data_dict["no_coin_pose"] = get_posestamped(np.array([0.60648338, -0.2, Z_PICK]),
+    #                                                np.array([1,0,0,0]))
+    # expt_data_dict["target_pose"] = get_posestamped(np.array([0.4758666, 0.23351082, Z_PICK]),
+    #                                               np.array([1,0,0,0]))
+    
+    expt_data_dict["object_pose"] = get_posestamped(np.array([0.47739821, -0.2, Z_PICK]),
                                                   np.array([1,0,0,0]))
-    expt_data_dict["no_coin_pose"] = get_posestamped(np.array([0.60648338, -0.2, Z_PICK]),
-                                                   np.array([1,0,0,0]))
-    expt_data_dict["target_pose"] = get_posestamped(np.array([0.4758666, 0.23351082, Z_PICK]),
-                                                  np.array([1,0,0,0]))
+    # 0 is coins, 1 is no coins, 2 is audio of robot moving
+    expt_data_dict["class_id"] = 0
         
     print("Collecting Experiment with Config:\n ", expt_data_dict)
     
-    data.collect_trajectories_joints(expt_data_dict)
+    # data.collect_trajectories_joints(expt_data_dict)
+    data.collect_audio_classes(expt_data_dict)
 
     print("Trajectories Collected")
     data.fa.reset_joints()
