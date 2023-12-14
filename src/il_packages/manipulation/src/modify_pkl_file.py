@@ -1,8 +1,8 @@
 import os
 import shutil
 
-folder_path = "/home/ros_ws/logs/recorded_trajectories/vision_audio_first"
-output_folder_path = "/home/ros_ws/dataset/data/vision_audio_first"
+folder_path = "/home/ros_ws/logs/recorded_trajectories/vision_audio_coins"
+output_folder_path = "/home/ros_ws/dataset/data/vision_audio_coins"
 convert_audio = True
 
 total_num_of_files = len(sorted(os.listdir(folder_path)))
