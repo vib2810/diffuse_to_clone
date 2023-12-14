@@ -39,7 +39,7 @@ if __name__ == "__main__":
         "batch_size": 256,
         "eval_batch_size": 256,
         "num_workers": 8,
-        "num_epochs": 700,
+        "num_epochs": 400,
         "learning_rate": 1e-4,
         "loss": nn.functional.mse_loss,
         'model_class': DiffusionTrainer,
@@ -53,7 +53,8 @@ if __name__ == "__main__":
                                     '_lr_' + str(train_params['learning_rate']) + \
                                     '_bs_' + str(train_params['batch_size']) + \
                                     '_epochs_' + str(train_params['num_epochs']) + \
-                                    '_loss_' + train_params['loss'].__name__
+                                    '_loss_' + train_params['loss'].__name__ + \
+                                    '_audio_based_' + str(data_params['is_audio_based'])
 
     model_trainer = ModelTrainer(train_params, data_params)
     model_trainer.train_model()

@@ -73,6 +73,11 @@ class ModelTester:
         # Initialize the model
         stored_pt_file = torch.load("/home/ros_ws/logs/models/" + model_name + ".pt", map_location=torch.device('cpu'))
         self.train_params = {key: stored_pt_file[key] for key in stored_pt_file if key != "model_weights"}
+
+        # For models trained prior to audio based training implementation
+        if 'is_audio_based' not in self.train_params:
+            self.train_params['is_audio_based'] = False
+            
         if str(stored_pt_file["model_class"]).find("DiffusionTrainer") != -1:
             self.train_params["action_horizon"] = self.ACTION_HORIZON_DIFFUSION
             self.train_params["num_ddim_iters"] = self.DDIM_STEPS

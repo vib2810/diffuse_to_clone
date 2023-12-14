@@ -154,8 +154,9 @@ class DiffusionTrainer(nn.Module):
     def eval(self):
         # self.nets.eval()
         self.inference_nets.eval()
-        
-    def get_obs_cond(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naudio: torch.Tensor):
+            
+    img_count = 0
+    def get_obs_cond(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naudio: torch.Tensor, save_audio_features=False):
         if self.is_state_based:
             return torch.cat([nagent_pos], dim=-1).flatten(start_dim=1)
         else:
@@ -168,14 +169,26 @@ class DiffusionTrainer(nn.Module):
             # concatenate vision feature and low-dim obs
             obs_features = torch.cat([image_features, nagent_pos], dim=-1)
             obs_cond = obs_features.flatten(start_dim=1) # (B, obs_horizon * obs_dim)
-            print("Obs cond shape: ", obs_cond.shape)
             # Add audio features if audio based
             if self.is_audio_based:
                 # encoder vision features
+                input_audio = naudio.flatten(end_dim=1) # shape (B, audio_steps, audio_bins)
                 audio_features = self.inference_nets['audio_encoder'](
-                    naudio.flatten(end_dim=1)) # shape (B, audio_dim)
-                print("Audio features shape: ", audio_features.shape)
+                    input_audio) # shape (B, audio_dim)
                 
+                if save_audio_features:
+                    audio_features_img = audio_features.detach().cpu().numpy()
+                    audio_features_img = (audio_features_img - np.min(audio_features_img))/(np.max(audio_features_img) - np.min(audio_features_img))
+                    audio_features_img = (audio_features_img * 255).astype(np.uint8)
+                    # save as grayscale image
+                    save_path = f"/home/ros_ws/networks/debug/{self.img_count}.png"
+                    print("Saving audio features image at: ", save_path)
+                    wrote = cv2.imwrite(save_path, audio_features_img)
+                    # check if write was successful
+                    if not wrote:
+                        print("Error writing audio features image")
+                        
+                    self.img_count += 1
                 obs_cond = torch.cat([obs_cond, audio_features], dim=-1)
             return obs_cond
                 

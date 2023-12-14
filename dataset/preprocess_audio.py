@@ -36,9 +36,7 @@ def process_audio(audio_data, sample_rate=16000, num_freq_bins=100, num_time_bin
     plt.imshow(fully_binned_spectrogram)
     plt.colorbar()
     plt.show()
-  
-  # fully_binned_spectrogram = (fully_binned_spectrogram - np.min(fully_binned_spectrogram))/(np.max(fully_binned_spectrogram) - np.min(fully_binned_spectrogram))
-  fully_binned_spectrogram = fully_binned_spectrogram/300
+  fully_binned_spectrogram = fully_binned_spectrogram/600
   
   return fully_binned_spectrogram
 
