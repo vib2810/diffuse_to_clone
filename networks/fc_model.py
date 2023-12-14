@@ -32,6 +32,7 @@ class FCTrainer(nn.Module):
         self.num_batches = train_params["num_batches"]
         self.stats = train_params["stats"]
         self.is_state_based = train_params["is_state_based"]
+        self.is_audio_based = train_params["is_audio_based"]
         self.device = device
         
         assert self.pred_horizon == 1, "FC Model only works for pred_horizon = 1"
@@ -41,6 +42,10 @@ class FCTrainer(nn.Module):
             # Get vision encoder (obs dim already includes vision features added in the dataloader)
             self.vision_encoder = get_vision_encoder('resnet18', weights='IMAGENET1K_V2')
         
+        if(self.is_audio_based):
+            # Get audio encoder
+            self.audio_encoder = get_audio_encoder(audio_steps=57, audio_bins=100)
+            
         # create network object
         self.mean_net = self.make_network(
             input_size=self.obs_dim,
@@ -80,6 +85,9 @@ class FCTrainer(nn.Module):
         
         if not self.is_state_based:
             self.vision_encoder.to(self.device)
+            
+        if self.is_audio_based:
+            self.audio_encoder.to(self.device)
         
         for key in self.stats.keys():
             for subkey in self.stats[key].keys():
@@ -101,29 +109,41 @@ class FCTrainer(nn.Module):
     def eval(self):
         # self.nets.eval()
         self.mean_net.eval()
+        self.vision_encoder.eval()
+        self.audio_encoder.eval()
         if not self.is_state_based:
             self.vision_encoder.eval()
+    
+    def get_obs_cond(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naudio: torch.Tensor):
+        if self.is_state_based:
+            return torch.cat([nagent_pos], dim=-1).flatten(start_dim=1)
+        else:
+            # encoder vision features
+            image_features = self.vision_encoder(
+                nimage.flatten(end_dim=1)) # shape (B*obs_horizon, D)
+            image_features = image_features.reshape(
+                *nimage.shape[:2],-1) # (B,obs_horizon,D)
+
+            # concatenate vision feature and low-dim obs
+            obs_features = torch.cat([image_features, nagent_pos], dim=-1)
+            obs_cond = obs_features.flatten(start_dim=1) # (B, obs_horizon * obs_dim)
+            # Add audio features if audio based
+            if self.is_audio_based:
+                # encoder vision features
+                input_audio = naudio.flatten(end_dim=1) # shape (B, audio_steps, audio_bins)
+                audio_features = self.audio_encoder(
+                    input_audio) # shape (B, audio_dim)
+                obs_cond = torch.cat([obs_cond, audio_features], dim=-1)
+            return obs_cond
         
-    def get_all_actions_normalized(self, nimage: torch.Tensor, nagent_pos: torch.Tensor):
+    def get_all_actions_normalized(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naudio: torch.Tensor):
         """
         Returns the actions for the entire horizon (self.pred_horizon)
         Assumes that the data is normalized
         Returns normalized actions of shape (B, pred_horizon, action_dim)
         """
         with torch.no_grad():
-            if(not self.is_state_based):
-                # encoder vision features
-                image_features = self.vision_encoder(nimage.flatten(end_dim=1))
-                image_features = image_features.reshape(*nimage.shape[:2],-1) # (B,obs_horizon,D)
-
-                # concatenate vision feature and low-dim obs
-                obs_features = torch.cat([image_features, nagent_pos], dim=-1)
-                obs_cond = obs_features.flatten(start_dim=1) # (B, obs_horizon * obs_dim)
-
-            else:
-                obs_features = torch.cat([nagent_pos], dim=-1)
-                obs_cond = obs_features.flatten(start_dim=1) # (B, obs_horizon * obs_dim)
-        
+            obs_cond = self.get_obs_cond(nimage, nagent_pos, naudio)
             naction = self.mean_net(obs_cond)
             return naction
     
@@ -131,32 +151,21 @@ class FCTrainer(nn.Module):
         "Dummy function"
         pass
 
-    def get_mpc_action(self, nimage: torch.Tensor, nagent_pos: torch.Tensor):
+    def get_mpc_action(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naudio: torch.Tensor):
         """
+        Assumes nagent_pos is not normalized
+        Assumes image is normalized with imagenet stats
         Dummy function with same name, just return the next action
         """
         nagent_pos = normalize_data(nagent_pos, self.stats['nagent_pos'])
-        naction = self.get_all_actions_normalized(nimage, nagent_pos)
+        naction = self.get_all_actions_normalized(nimage, nagent_pos, naudio)
         naction_unnormalized = unnormalize_data(naction, stats=self.stats['actions']) # (B, action_horizon * action_dim) where action_horizon = 1
         assert naction_unnormalized.shape[0] == 1
         return naction_unnormalized.squeeze(0).cpu().numpy()            
         
-    def train_model_step(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naction: torch.Tensor):
+    def train_model_step(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naudio: torch.Tensor, naction: torch.Tensor):
         self.optimizer.zero_grad()
-        
-        if(not self.is_state_based):
-            # encoder vision features
-            image_features = self.vision_encoder(nimage.flatten(end_dim=1))
-            image_features = image_features.reshape(*nimage.shape[:2],-1) # (B,obs_horizon,D)
-
-            # concatenate vision feature and low-dim obs
-            obs_features = torch.cat([image_features, nagent_pos], dim=-1)
-            obs_cond = obs_features.flatten(start_dim=1) # (B, obs_horizon * obs_dim)
-
-        else:
-            obs_features = torch.cat([nagent_pos], dim=-1)
-            obs_cond = obs_features.flatten(start_dim=1) # (B, obs_horizon * obs_dim)
-        
+        obs_cond = self.get_obs_cond(nimage, nagent_pos, naudio)
         model_actions = self.mean_net(obs_cond)
 
         loss = self.loss_fn(model_actions, naction.flatten(start_dim=1))
@@ -168,12 +177,12 @@ class FCTrainer(nn.Module):
     def run_after_epoch(self):
         pass
     
-    def eval_model(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naction: torch.Tensor, return_actions=False):
+    def eval_model(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naudio: torch.Tensor, naction: torch.Tensor, return_actions=False):
         """
         Input: nimage, nagent_pos, naction in the dataset [normalized inputs]
         Returns the MSE loss between the normalized model actions and the normalized actions in the dataset
         """
-        model_actions = self.get_all_actions_normalized(nimage, nagent_pos)
+        model_actions = self.get_all_actions_normalized(nimage, nagent_pos, naudio)
         loss = self.loss_fn(model_actions, naction.flatten(start_dim=1))
         if return_actions:
             return loss.item(), model_actions

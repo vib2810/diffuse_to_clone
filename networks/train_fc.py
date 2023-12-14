@@ -37,8 +37,8 @@ if __name__ == "__main__":
     
     # Make the train params
     train_params = {
-        "batch_size": 128,
-        "eval_batch_size": 128,
+        "batch_size": 256,
+        "eval_batch_size": 256,
         "learning_rate": 1e-4,
         "n_layers": 4,
         "hidden_size": 1024,

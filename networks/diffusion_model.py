@@ -243,14 +243,15 @@ class DiffusionTrainer(nn.Module):
 
     def get_mpc_action(self, nimage: torch.Tensor, nagent_pos: torch.Tensor, naudio: torch.Tensor, sampler = "ddim"):
         """
-        Assumes data is not normalized
+        Assumes nagent_pos is not normalized
+        Assumes image is normalized with imagenet stats
         Meant to be called for live control of the robot
         Assumes that the batch size is 1
         """
         # Compute next pred_horizon actions and store the next action_horizon actions in a list
         if len(self.mpc_actions) == 0:          
             nagent_pos = normalize_data(nagent_pos, self.stats['nagent_pos'])
-            naction = self.get_all_actions_normalized(nimage, nagent_pos, sampler=sampler)
+            naction = self.get_all_actions_normalized(nimage, nagent_pos, naudio, sampler=sampler)
             naction_unnormalized = naction
             naction_unnormalized = unnormalize_data(naction, stats=self.stats['actions']) # (B, pred_horizon, action_dim)
             
