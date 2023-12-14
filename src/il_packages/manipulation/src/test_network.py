@@ -7,6 +7,7 @@ from geometry_msgs.msg import PoseStamped, Pose
 import torch
 import cv2
 from sensor_msgs.msg import Image
+from audio_common_msgs.msg import AudioData
 
 sys.path.append("/home/ros_ws/src/il_packages/manipulation/src")
 sys.path.append("/home/ros_ws/")
@@ -20,6 +21,7 @@ from franka_interface_msgs.msg import SensorDataGroup
 from src.il_packages.manipulation.src.moveit_class import get_pose_norm, get_posestamped, EXPERT_RECORD_FREQUENCY
 from src.il_packages.manipulation.src.data_class import getRigidTransform
 from torchvision import transforms
+from dataset.preprocess_audio import process_audio
 
 sys.path.append("/home/ros_ws/src/git_packages/frankapy")
 from frankapy.proto import PosePositionSensorMessage, CartesianImpedanceSensorMessage
@@ -77,7 +79,10 @@ class ModelTester:
         # For models trained prior to audio based training implementation
         if 'is_audio_based' not in self.train_params:
             self.train_params['is_audio_based'] = False
-            
+        
+        if "obs_horizon" not in self.train_params:
+            self.train_params["obs_horizon"] = 1
+
         if str(stored_pt_file["model_class"]).find("DiffusionTrainer") != -1:
             self.train_params["action_horizon"] = self.ACTION_HORIZON_DIFFUSION
             self.train_params["num_ddim_iters"] = self.DDIM_STEPS
@@ -96,7 +101,11 @@ class ModelTester:
             self.model.initialize_mpc_action()
             
         self.model.load_model_weights(stored_pt_file["model_weights"])
+        
+        # Config for evaluation environment
         self.is_state_based = self.train_params["is_state_based"]
+        self.is_audio_based = self.train_params["is_audio_based"]
+        
         self.gripper_actuator = GripperActuator()
 
         # print model hparams (except model_weights)
@@ -110,9 +119,6 @@ class ModelTester:
         self.fa = FrankaArm(init_node = False)
         self.pub = rospy.Publisher(FC.DEFAULT_SENSOR_PUBLISHER_TOPIC, SensorDataGroup, queue_size=1000)
 
-        if "obs_horizon" not in self.train_params:
-            self.train_params["obs_horizon"] = 1
-
         # Initialize image subscriber
         self.img_sub = rospy.Subscriber('camera/color/image_raw', Image, self.image_callback, queue_size=1)
         self.img_buffer = None
@@ -125,6 +131,14 @@ class ModelTester:
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ])
         
+        if self.is_audio_based:
+            # Initialize audio params
+            self.audio_buffer_size = 32000
+            self.audio_data = [0]*self.audio_buffer_size
+            self.got_image = False
+            self.got_audio = False
+            rospy.Subscriber('/audio/audio', AudioData, self.audio_callback)
+
         # Initialize sequence buffer with zeoros of size obs_horizon
         self.seq_buffer = None
         self.prev_joints = self.fa.get_joints()
@@ -132,6 +146,20 @@ class ModelTester:
         # test gripper
         self.fa.close_gripper()
         self.fa.open_gripper()
+        
+    def audio_callback(self, data):
+        """
+        Maintain an audio buffer of size 32000 (last ~2 seconds of audio)
+        """
+        if not self.got_audio:
+            self.got_audio = True
+        
+        audio = np.frombuffer(data.data, dtype=np.int8)
+        self.audio_data = np.concatenate((self.audio_data, audio))
+        
+        if len(self.audio_data) > self.audio_buffer_size:
+            self.audio_data = self.audio_data[-self.audio_buffer_size:]
+            assert len(self.audio_data) == self.audio_buffer_size
 
     def image_callback(self, img_msg):
         """ Callback function from realsense camera """
@@ -279,9 +307,21 @@ class ModelTester:
 
             stacked_images = np.stack(self.img_buffer, axis=0)
             nimage = torch.from_numpy(stacked_images).float().unsqueeze(0).to(self.model.device)
+            
+        ### Getting audio
+        if self.is_audio_based:
+            if not self.got_audio:
+                rospy.logerr("No audio received. Exiting")
+                sys.exit()
+            
+            # preprocess audio
+            processed_audio = process_audio(self.audio_data, sample_rate=16000, num_freq_bins=100, num_time_bins=57) # shape (57, 100)
+            naudio = torch.from_numpy(processed_audio).float().unsqueeze(0).to(self.model.device) # shape (1, 57, 100)
+        else:
+            naudio = None
         
         # forward pass model to get action
-        action = self.model.get_mpc_action(nimage=nimage, nagent_pos=nagent_pos)
+        action = self.model.get_mpc_action(nimage=nimage, nagent_pos=nagent_pos, naudio=naudio)
         
         print("Curr State: ", curr_pose.position.x, curr_pose.position.y, curr_pose.position.z, curr_gripper)
         print(f"Model Action: {action}")

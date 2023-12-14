@@ -33,7 +33,7 @@ class AudioEncoder(nn.Module):
 
     # 1D convolution acts on the audio_bins dimension, which correlates with frequency
     def audio_forward_conv(self, audio):
-        # Audio shape: (batch_size, audio_steps, audio_bins)
+        # Audio shape: (batch_size, audio_steps, audio_bins) = (batch_size, 57, 100)
         audio = audio.transpose(1, 2) # (batch_size, audio_bins, audio_steps)
         h = self.audioConvs(audio) # (batch_size, 8, audio_steps - 24)
         h = h.view(h.size(0), -1) # (batch_size, 8 * (audio_steps - 24))
