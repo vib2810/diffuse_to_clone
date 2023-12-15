@@ -310,3 +310,40 @@ def get_stacked_samples(observations, actions,
     
     # (batch_size, seq_len, ob_dim), (batch_size, ac_seq_len, ac_dim), (batch_size, seq_len, 2)
     return np.stack(stacked_observations), np.stack(stacked_actions), np.stack(stacked_image_data_info), np.stack(stacked_audio_data_info)
+
+
+def plot_audio_data(audio_data, audio_label, save_dir:str,save_prefix:str):
+    """ Plot audio data. Incomplete function!! """
+    raise NotImplementedError
+
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    assert os.path.exists(save_dir), "save_dir does not exist"
+    # from matplotlib import pyplot as plt
+    # # plt.figure(figsize=(20,10))
+    # plt.plot(audio_data)
+    # plt.title(audio_label)
+    # plt.savefig(os.path.join(save_dir, audio_label+".png"))
+
+    # use plotly to plot data and save 
+    import plotly.graph_objects as go
+    import plotly.io as pio
+    x_data = audio_data[0,:]
+    y_data = audio_data[:]
+    trace = go.Scatter(x=x_data, y=y_data, mode='lines', name='Line Plot')
+    fig = go.Figure(data=go.Scatter(y=audio_data))
+    layout = go.Layout(title='Raw audio data', xaxis=dict(title='X-axis'), yaxis=dict(title='Y-axis'))
+    fig = go.Figure(data=[trace], layout=layout)
+    pio.write_image(fig, os.path.join(save_dir,save_prefix+".png"), format='png')
+
+    # plot 3d spectogram of audio frequencies over time
+    # Use plotly
+    import plotly.graph_objects as go
+    import plotly.io as pio
+    import plotly.express as px
+    import plotly.figure_factory as ff
+    import numpy as np
+
+    go.Figure(data=[go.Histogram3d(x=x_data, y=y_data, z=z_data, opacity=0.7)])
+    fig = go.Figure(data=[trace])
+    pio.write_image(fig, os.path.join(save_dir,save_prefix+"_spectogram.png"), format='png')
