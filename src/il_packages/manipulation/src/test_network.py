@@ -314,8 +314,12 @@ class ModelTester:
                 rospy.logerr("No audio received. Exiting")
                 sys.exit()
             
+            # Save audio as npz file
+            save_path = "/home/ros_ws/logs/test_audiofile.npy"
+            np.save(save_path, self.audio_data)
+            
             # preprocess audio
-            processed_audio = process_audio(self.audio_data, sample_rate=16000, num_freq_bins=100, num_time_bins=57) # shape (57, 100)
+            processed_audio = process_audio(save_path, sample_rate=16000, num_freq_bins=100, num_time_bins=57) # shape (57, 100)
             naudio = torch.from_numpy(processed_audio).float().unsqueeze(0).to(self.model.device) # shape (1, 57, 100)
         else:
             naudio = None
