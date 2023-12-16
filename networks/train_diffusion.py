@@ -46,6 +46,7 @@ if __name__ == "__main__":
         'num_diffusion_iters': 100,
         'num_ddim_iters': 10, # for DDIM sampling
         'device': 'cuda:0',
+        'audio_cnn_pretrained_ckpt': 'ckpt'
     }
 
     train_params["experiment_name"] = train_params['model_class'].__name__ + \

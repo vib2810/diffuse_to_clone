@@ -38,8 +38,8 @@ if __name__ == "__main__":
     train_params = {
         "batch_size": 256,
         "eval_batch_size": 256,
-        "learning_rate": 5e-5,
-        "num_workers": 8,
+         "learning_rate": 1e-4,
+        "num_workers": 4,
         "num_epochs": 300,
         "loss": nn.CrossEntropyLoss,
         "activation": nn.ReLU(),

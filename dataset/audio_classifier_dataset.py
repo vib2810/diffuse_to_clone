@@ -180,21 +180,8 @@ class AudioDataset(torch.utils.data.Dataset):
         # Convert to numpy array
         self.audio_data_info = np.array(self.audio_data_info)
 
-        # transforms for image data
-        # Use some transforms for audio data
-        # if self.is_state_based==False:
-        #     self.image_transforms = transforms.Compose([
-        #         transforms.ToPILImage(),
-        #         transforms.Resize((256,256)),
-        #         transforms.CenterCrop(224),
-        #         # transforms.Resize((96,96)),
-        #         transforms.ToTensor(), # converts to [0,1] and (C,H,W)
-        #         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        #     ])
-
     def print_size(self, name):
         print("Size of {} dataset: {}".format(name, len(self)))
-        
 
     def __len__(self):
         # return len(self.indices)

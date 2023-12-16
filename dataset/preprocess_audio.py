@@ -32,14 +32,16 @@ def get_audio_amplitude_array(npy_file_path):
       mp3_path = npy_file_path[:-4] + '.mp3'
       # Assuming the loaded data is in the correct format for MP3
       with open(mp3_path, 'wb') as mp3_file:
-          mp3_file.write(loaded_audio_data.tobytes())
+        mp3_file.write(loaded_audio_data.tobytes())
           
       # write audio amp array
       amp_array = np.array(AudioSegment.from_mp3(mp3_path).get_array_of_samples(), dtype=np.int16)
-      pickle.dump(amp_array, open(audio_amp_path, 'wb'))
+      with open(audio_amp_path, 'wb') as f:
+        pickle.dump(amp_array, f)
     
     else:
-      amp_array = pickle.load(open(audio_amp_path, 'rb'))
+      with open(audio_amp_path, 'rb') as f:
+        amp_array = pickle.load(f)
       amp_array =  np.array(amp_array, dtype=np.int16)
 
     return amp_array
@@ -59,15 +61,14 @@ def process_audio(audio_data_npy_path, sample_rate=16000, num_freq_bins=100, num
   '''
   audio_data = get_audio_amplitude_array(audio_data_npy_path) # shape (37440,)
   
-  fully_binned_spectrogram = compute_spectrogram(audio_data, sample_rate, num_freq_bins, num_time_bins)
+  fully_binned_spectrogram, scipy_spect = compute_spectrogram(audio_data, sample_rate, num_freq_bins, num_time_bins)
   fully_binned_spectrogram = fully_binned_spectrogram/(60000*50)
 
   # This is for debugging any invalid spectrograms that slip through the cracks.
   if check_valid:
     print("Fully Binned Spectrogram Min: ", np.min(fully_binned_spectrogram), " Max: ", np.max(fully_binned_spectrogram), " Mean: ", np.mean(fully_binned_spectrogram))
-    # plt.imshow(binned_freq_spectrogram)
-    # plt.colorbar()
-    # plt.show()
+    plt.figure()
+    plt.imshow(scipy_spect)
     plt.figure()
     plt.plot(audio_data)
     plt.xlabel('Time (samples)'); plt.ylabel('Amplitude')
@@ -95,13 +96,12 @@ def compute_spectrogram(audio_data, sample_rate, num_freq_bins, num_time_bins):
   # Sxx has first dim Freq, second dim time
   f, t, Sxx = signal.spectrogram(audio_data, sample_rate, scaling='spectrum', return_onesided=True)
   Sxx = np.array(Sxx) # shape (129, 167), f shape (129,)
-  plt.imshow(Sxx)
   
   assert Sxx.shape[0]/num_freq_bins > 1, f"num_freq_bins {num_freq_bins} is more than Sxx.shape[0] {Sxx.shape[0]}"
   assert Sxx.shape[1]/num_time_bins > 1, f"num_time_bins {num_time_bins} is more than Sxx.shape[1] {Sxx.shape[1]}"
 
   fully_binned_spectrogram = bin_matrix(Sxx, (num_freq_bins, num_time_bins))
-  return fully_binned_spectrogram.T
+  return fully_binned_spectrogram.T, Sxx.T
   
 def bin_matrix(original_matrix, new_shape):
     """

@@ -63,9 +63,7 @@ class AudioCNN(nn.Module):
         self.audio_encoder = AudioEncoder(self.audio_steps, self.audio_bins)
         self.encoder_out_dim = self.audio_encoder.out_dim
         self.fc = nn.Sequential(
-            nn.Linear(self.encoder_out_dim,self.encoder_out_dim//2),
-            nn.ReLU(),
-            nn.Linear(self.encoder_out_dim//2, self.num_classes),
+            nn.Linear(self.encoder_out_dim, self.num_classes),
         )
 
         self.nets = nn.ModuleDict({
@@ -87,12 +85,12 @@ class AudioCNN(nn.Module):
         """
         Performs a single training step
         """
+        self.optimizer.zero_grad()
         # Forward pass
         output = self.forward(audio)
         # print("Model output shape=", output.shape)
         # Compute loss
         loss = self.lossfn(output, targets)
-        self.optimizer.zero_grad()
         # Backward pass
         loss.backward()
         # Update
@@ -104,12 +102,12 @@ class AudioCNN(nn.Module):
         """
         Evaluates the model on the given data
         """
-        # Forward pass
-        output = self.forward(audio)
-        # Compute loss
-        loss = self.lossfn(output, targets)
-        return loss.item()
-
+        with torch.no_grad():
+            # Forward pass
+            output = self.forward(audio)
+            # Compute loss
+            loss = self.lossfn(output, targets)
+            return loss.item()
     
 class AudioTrainer():
 
