@@ -183,11 +183,11 @@ class DiffusionDataset(torch.utils.data.Dataset):
             data_idx = int(audio_data_info[idx, 1])
             
             file_path = os.path.join(self.dataset_path, "Audio", str(file_idx), str(data_idx)+".npy")
-            audio = np.load(file_path) # shape (32000, 1)
+            # audio = np.load(file_path) # shape (32000, 1)
             # print("Shape of audio: ", audio.shape)
 
             # Process each audio individually
-            audio = process_audio(audio, sample_rate=16000, num_freq_bins=100, num_time_bins=57) # shape (57, 100)
+            audio = process_audio(file_path, sample_rate=16000, num_freq_bins=100, num_time_bins=57) # shape (57, 100)
             audio_data[idx] = torch.tensor(audio)
 
         # Stack the processed audio into a batch
