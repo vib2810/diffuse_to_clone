@@ -372,7 +372,7 @@ def get_vision_encoder(
 
     return vision_encoder
 
-def get_audio_encoder(audio_steps, audio_bins, pretrained_ckpt_path=None):
+def get_audio_encoder(audio_steps, audio_bins, pretrained_ckpt_path=None, freeze:bool= False):
     vision_audio_encoder = AudioEncoder(audio_steps, audio_bins)
     if pretrained_ckpt_path is not None:
         model_path = "/home/ros_ws/logs/models/"+pretrained_ckpt_path+".pt"
@@ -387,4 +387,9 @@ def get_audio_encoder(audio_steps, audio_bins, pretrained_ckpt_path=None):
                 to_apply_weights[k.replace('audio_encoder.', '')] = v
         vision_audio_encoder.load_state_dict(to_apply_weights)
         print("Loaded pretrained audio encoder from: ", model_path)
+
+    if freeze:
+        for param in vision_audio_encoder.parameters():
+            param.requires_grad = False
+            
     return vision_audio_encoder

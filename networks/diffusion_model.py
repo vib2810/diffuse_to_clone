@@ -79,7 +79,7 @@ class DiffusionTrainer(nn.Module):
             })
             
             if self.is_audio_based:
-                self.audio_encoder = get_audio_encoder(audio_steps=57, audio_bins=100, pretrained_ckpt_path=train_params['audio_cnn_pretrained_ckpt'])
+                self.audio_encoder = get_audio_encoder(audio_steps=57, audio_bins=100, pretrained_ckpt_path=train_params['audio_cnn_pretrained_ckpt'], freeze=False)
                 self.audio_encoder_eval = get_audio_encoder(audio_steps=57, audio_bins=100, pretrained_ckpt_path=train_params['audio_cnn_pretrained_ckpt'])
                 # add to module dict
                 self.nets['audio_encoder'] = self.audio_encoder
