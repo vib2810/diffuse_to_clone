@@ -8,6 +8,8 @@ import numpy as np
 from scipy import signal
 from pydub import AudioSegment
 import pickle
+from scipy.ndimage import zoom
+import cv2
 
 # Ignore frequency components below this value (in Hz)
 MIN_RELEVANT_FREQUENCY = 0
@@ -57,8 +59,8 @@ def process_audio(audio_data_npy_path, sample_rate=16000, num_freq_bins=100, num
   '''
   audio_data = get_audio_amplitude_array(audio_data_npy_path) # shape (37440,)
   
-  fully_binned_spectrogram, binned_freq_spectrogram = compute_spectrogram(audio_data, sample_rate, num_freq_bins, num_time_bins)
-  fully_binned_spectrogram = fully_binned_spectrogram/60000
+  fully_binned_spectrogram = compute_spectrogram(audio_data, sample_rate, num_freq_bins, num_time_bins)
+  fully_binned_spectrogram = fully_binned_spectrogram/(60000*50)
 
   # This is for debugging any invalid spectrograms that slip through the cracks.
   if check_valid:
@@ -92,80 +94,30 @@ def compute_spectrogram(audio_data, sample_rate, num_freq_bins, num_time_bins):
   '''
   # Sxx has first dim Freq, second dim time
   f, t, Sxx = signal.spectrogram(audio_data, sample_rate, scaling='spectrum', return_onesided=True)
-  Sxx = np.array(Sxx)
+  Sxx = np.array(Sxx) # shape (129, 167), f shape (129,)
+  plt.imshow(Sxx)
   
   assert Sxx.shape[0]/num_freq_bins > 1, f"num_freq_bins {num_freq_bins} is more than Sxx.shape[0] {Sxx.shape[0]}"
   assert Sxx.shape[1]/num_time_bins > 1, f"num_time_bins {num_time_bins} is more than Sxx.shape[1] {Sxx.shape[1]}"
+
+  fully_binned_spectrogram = bin_matrix(Sxx, (num_freq_bins, num_time_bins))
+  return fully_binned_spectrogram.T
   
-  # print(f"Shape of Sxx: {Sxx.shape}")
-  # print(f"Min value: {np.min(Sxx)}, max value: {np.max(Sxx)}")
+def bin_matrix(original_matrix, new_shape):
+    """
+    Bins a matrix to a new shape using bilinear interpolation with cv2.
 
-  # plot spectrogram Sxx
-  # plt.pcolormesh(t, f, Sxx)
-  # plt.ylabel('Frequency [Hz]')
-  # plt.xlabel('Time [sec]')
-  # plt.show(block=False)
-  # plt.pause(0.0001)
+    Args:
+        original_matrix (numpy.array): The original matrix to be binned.
+        new_shape (tuple): The shape of the new binned matrix (new_height, new_width).
 
-  # Find the indices of the bounds of the relevant frequencies
-  min_relevant_freq_idx = np.searchsorted(f, MIN_RELEVANT_FREQUENCY)
-  max_relevant_freq_idx = np.searchsorted(f, MAX_RELEVANT_FREQUENCY)
+    Returns:
+        numpy.array: The binned matrix.
+    """
+    # OpenCV's resize function takes size in (width, height) order
+    size = (new_shape[1], new_shape[0])
 
-  trimmed_spectrogram = Sxx[min_relevant_freq_idx:max_relevant_freq_idx,:]
-  trimmed_freqs = f[min_relevant_freq_idx:max_relevant_freq_idx]
+    # Use cv2's resize function with bilinear interpolation
+    binned_matrix = cv2.resize(original_matrix, size, interpolation=cv2.INTER_LINEAR)
 
-  binned_freq_spectrogram = bin_spectrogram_freq(trimmed_spectrogram, num_freq_bins)
-  fully_binned_spectrogram = bin_spectrogram_time(binned_freq_spectrogram, num_time_bins)
-
-  return fully_binned_spectrogram, binned_freq_spectrogram
-
-def bin_spectrogram_freq(spectrogram, num_freq_bins):
-  '''Bins a spectrogram on its frequency dimension.
-
-  Args:
-    spectrogram (numpy.array) : The unbinned spectrogram
-    num_freq_bins (int) : The number of desired frequency bins in the processed binned spectrogram
-
-  Returns:
-    The spectrogram binned on its frequency dimension.
-  '''
-  return __bin_matrix_dimension(spectrogram, 0, num_freq_bins)
-
-def bin_spectrogram_time(spectrogram, num_time_bins):
-  '''Bins a spectrogram on its time dimension.
-
-  Args:
-    spectrogram (numpy.array) : The unbinned spectrogram
-    num_time_bins (int) : The number of desired time bins in the processed binned spectrogram
-
-  Returns:
-    The spectrogram binned on its time dimension.
-  '''
-  return __bin_matrix_dimension(spectrogram, 1, num_time_bins)
-
-def __bin_matrix_dimension(m, dimension, num_bins):
-  '''Bins a matrix on a specified dimension.
-
-  Args:
-    m (numpy.array) : The original matrix
-    dimension (int) : The dimension to bin
-    num_bins (int) : The desired number of bins for the specified dimension
-
-  Returns:
-    A numpy.array of the matrix binned on the specified dimension.
-  '''
-  # print(f"Shape of m: {m.shape}")
-  bin_size = int(np.floor(m.shape[dimension]/(num_bins+0.0)))
-
-  binned_matrix = np.zeros((m.shape[1-dimension], num_bins))
-  
-  for b in range(num_bins):
-    min_bin_idx = b * bin_size
-    max_bin_idx = min((b+1) * bin_size, m.shape[dimension])
-    if dimension == 0:
-        binned_matrix[:,b] = np.sum(m[min_bin_idx:max_bin_idx, :], axis=0)
-    else:
-        binned_matrix[:,b] = np.sum(m[:, min_bin_idx:max_bin_idx], axis=1)
-
-  # print(f"Shape of binned_matrix: {binned_matrix.shape}")
-  return binned_matrix.T
+    return binned_matrix

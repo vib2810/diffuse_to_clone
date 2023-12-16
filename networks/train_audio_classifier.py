@@ -38,7 +38,7 @@ if __name__ == "__main__":
     train_params = {
         "batch_size": 256,
         "eval_batch_size": 256,
-        "learning_rate": 3.5e-5,
+        "learning_rate": 5e-5,
         "num_workers": 8,
         "num_epochs": 300,
         "loss": nn.CrossEntropyLoss,
