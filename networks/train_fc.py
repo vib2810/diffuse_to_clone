@@ -49,6 +49,7 @@ if __name__ == "__main__":
         "output_activation": nn.Identity(),
         'model_class': FCTrainer,
         'device': 'cuda:0',
+        'audio_cnn_pretrained_ckpt': 'AudioTrainer_dataset_audio_classes_lr_0.0001_bs_256_epochs_300_loss_CrossEntropyLoss_16-12-2023_21-39-02'
     }
 
     train_params["experiment_name"] = train_params['model_class'].__name__ + \

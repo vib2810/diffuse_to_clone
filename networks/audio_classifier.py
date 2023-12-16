@@ -98,7 +98,7 @@ class AudioCNN(nn.Module):
         
         return loss.item()
 
-    def eval_model(self, audio, targets):
+    def eval_model(self, audio, targets, give_outputs=False):
         """
         Evaluates the model on the given data
         """
@@ -107,6 +107,8 @@ class AudioCNN(nn.Module):
             output = self.forward(audio)
             # Compute loss
             loss = self.lossfn(output, targets)
+            if give_outputs:
+                return loss.item(), output
             return loss.item()
     
 class AudioTrainer():
@@ -190,9 +192,11 @@ class AudioTrainer():
             
             # evaluate model
             print("-----Evaluating-----")
-            eval_loss = self.evaluate_model()
+            eval_loss, accuracy = self.evaluate_model()
             print("Eval loss: {}".format(eval_loss))
+            print("Accuracy: {}".format(accuracy))
             self.writer.add_scalar('Loss/eval', eval_loss, global_step)
+            self.writer.add_scalar('Accuracy/eval', accuracy, global_step)
             if eval_loss < self.best_eval_loss:
                 self.best_model_epoch = epoch_idx
                 self.best_eval_loss = eval_loss
@@ -248,6 +252,7 @@ class AudioTrainer():
         total_loss = 0
         # Put all params in eval mode
         self.put_on_eval()
+        correct_labels = 0; total_labels = 0
         # iterate over all the test data
         for nbatch in self.eval_dataloader:
             # data normalized in dataset
@@ -257,13 +262,18 @@ class AudioTrainer():
             targets = nbatch['audio_label'].to(self.device)
             B = naudio.shape[0]
 
-            loss = self.model.eval_model(naudio, targets)
+            loss, outputs = self.model.eval_model(naudio, targets, give_outputs=True)
             total_loss += loss*B
+            
+            # compute accuracy
+            model_labels = torch.argmax(outputs, dim=1)
+            correct_labels += torch.sum(model_labels == torch.argmax(targets, dim=1))
+            total_labels += B
         
         ## Put on training after eval
         self.put_on_train()
 
-        return total_loss/len(self.eval_dataloader.dataset)
+        return total_loss/len(self.eval_dataloader.dataset), correct_labels/total_labels
 
     def put_on_eval(self):
         self.model.eval()

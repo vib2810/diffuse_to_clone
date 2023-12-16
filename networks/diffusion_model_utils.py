@@ -375,10 +375,16 @@ def get_vision_encoder(
 def get_audio_encoder(audio_steps, audio_bins, pretrained_ckpt_path=None):
     vision_audio_encoder = AudioEncoder(audio_steps, audio_bins)
     if pretrained_ckpt_path is not None:
+        model_path = "/home/ros_ws/logs/models/"+pretrained_ckpt_path+".pt"
         # load only the audio_cnn weights from the pretrained checkpoint
-        pretrained_ckpt = torch.load(pretrained_ckpt_path)
-        pretrained_ckpt = pretrained_ckpt['model_weights']['audio_cnn']
-        pretrained_ckpt = OrderedDict([(k.replace('audio_cnn.', ''), v) for k, v in pretrained_ckpt.items()])
-        vision_audio_encoder.load_state_dict(pretrained_ckpt)
-        print("Loaded pretrained audio encoder from {}".format(pretrained_ckpt_path))
+        pretrained_ckpt = torch.load(model_path)
+        pretrained_ckpt = pretrained_ckpt['model_weights']
+        
+        # apply model weights that start with audio_encoder to vision_audio_encoder
+        to_apply_weights = {}
+        for k, v in pretrained_ckpt.items():
+            if k.startswith('audio_encoder'):
+                to_apply_weights[k.replace('audio_encoder.', '')] = v
+        vision_audio_encoder.load_state_dict(to_apply_weights)
+        print("Loaded pretrained audio encoder from: ", model_path)
     return vision_audio_encoder
