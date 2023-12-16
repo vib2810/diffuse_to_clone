@@ -171,6 +171,7 @@ class DiffusionTrainer(nn.Module):
             obs_cond = obs_features.flatten(start_dim=1) # (B, obs_horizon * obs_dim)
             # Add audio features if audio based
             if self.is_audio_based:
+                # naudio shape: (B, 1, audio_steps, audio_bins)
                 # encoder vision features
                 input_audio = naudio.flatten(end_dim=1) # shape (B, audio_steps, audio_bins)
                 audio_features = self.inference_nets['audio_encoder'](
