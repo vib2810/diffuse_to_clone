@@ -16,6 +16,10 @@ from geometry_msgs.msg import Pose
 import scipy
 import tf
 from collections import OrderedDict
+import plotly.graph_objects as go
+import plotly.io as pio
+import plotly.express as px
+import plotly.figure_factory as ff
 ### Utility functions for Dataset class
 
 def create_sample_indices(
@@ -310,3 +314,186 @@ def get_stacked_samples(observations, actions,
     
     # (batch_size, seq_len, ob_dim), (batch_size, ac_seq_len, ac_dim), (batch_size, seq_len, 2)
     return np.stack(stacked_observations), np.stack(stacked_actions), np.stack(stacked_image_data_info), np.stack(stacked_audio_data_info)
+
+
+def plot_audio_data(audio_data, audio_label, save_dir:str,save_prefix:str):
+    """ Plot audio data. Incomplete function!! """
+    raise NotImplementedError
+
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    assert os.path.exists(save_dir), "save_dir does not exist"
+    # from matplotlib import pyplot as plt
+    # # plt.figure(figsize=(20,10))
+    # plt.plot(audio_data)
+    # plt.title(audio_label)
+    # plt.savefig(os.path.join(save_dir, audio_label+".png"))
+
+    # use plotly to plot data and save 
+    import plotly.graph_objects as go
+    import plotly.io as pio
+    x_data = audio_data[0,:]
+    y_data = audio_data[:]
+    trace = go.Scatter(x=x_data, y=y_data, mode='lines', name='Line Plot')
+    fig = go.Figure(data=go.Scatter(y=audio_data))
+    layout = go.Layout(title='Raw audio data', xaxis=dict(title='X-axis'), yaxis=dict(title='Y-axis'))
+    fig = go.Figure(data=[trace], layout=layout)
+    pio.write_image(fig, os.path.join(save_dir,save_prefix+".png"), format='png')
+
+    # plot 3d spectogram of audio frequencies over time
+    # Use plotly
+    import plotly.graph_objects as go
+    import plotly.io as pio
+    import plotly.express as px
+    import plotly.figure_factory as ff
+    import numpy as np
+
+    go.Figure(data=[go.Histogram3d(x=x_data, y=y_data, z=z_data, opacity=0.7)])
+    fig = go.Figure(data=[trace])
+    pio.write_image(fig, os.path.join(save_dir,save_prefix+"_spectogram.png"), format='png')
+
+
+def plot_raw_audio_data_mean(dataset_path:str):
+    """ Plot the distibution of mean values for all classes, 'coins','no coins', 'other'"""
+
+    label2name = {0: "coins", 1: "box", 2: "other"}
+    name2label = {"coins": 0, "box": 1, "other": 2}
+
+    # assert path is valid
+    assert os.path.exists(dataset_path), "dataset_path does not exist"
+
+    save_dir = os.path.join(dataset_path,"results")
+
+    coins_path = os.path.join(dataset_path, "0")
+    box_path = os.path.join(dataset_path, "1")
+    other_path = os.path.join(dataset_path, "2")
+
+    # read all data files one by one
+    coins_files = [[os.path.join(coins_path, f),int(name2label["coins"])] for f in sorted(os.listdir(coins_path)) if f.endswith('.npy')]
+    box_files = [[os.path.join(box_path, f),int(name2label["box"])] for f in sorted(os.listdir(box_path)) if f.endswith('.npy')]
+    other_files = [[os.path.join(other_path, f),int(name2label['other'])] for f in sorted(os.listdir(other_path)) if f.endswith('.npy')]
+
+
+    coins_mean = []
+    box_mean = []
+    other_mean = []
+
+    for f in coins_files:
+        audio_data = np.load(f[0]).astype(np.uint8)
+
+        print(" Raw audio coins", audio_data)
+
+        coins_mean.append(np.mean(audio_data))
+
+    for f in box_files:
+        audio_data = np.load(f[0]).astype(np.uint8)
+        box_mean.append(np.mean(audio_data))
+    
+    for f in other_files:
+        audio_data = np.load(f[0]).astype(np.uint8)
+        other_mean.append(np.mean(audio_data))
+
+    # print("coins_mean: ",coins_mean)
+    # print("box_mean: ",box_mean)
+    # print("other_mean: ",other_mean)
+    
+    # Fit a gussian distribution to the data points in a single plot
+    
+    # Create traces
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(x=coins_mean, name='coins'))
+    fig.add_trace(go.Histogram(x=box_mean, name='box'))
+    fig.add_trace(go.Histogram(x=other_mean, name='other'))
+
+    # Overlay histograms
+    fig.update_layout(barmode='overlay')
+    # Reduce opacity to see both histograms
+    fig.update_traces(opacity=0.5)
+    pio.write_image(fig, os.path.join(save_dir,"raw_audio_data_combined.png"), format='png')
+
+    # Make separate histograms for each class
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(x=coins_mean, name='coins'))
+    fig.update_layout(barmode='overlay')
+    fig.update_traces(opacity=0.5)
+    pio.write_image(fig, os.path.join(save_dir,"raw_audio_data_coins.png"), format='png')
+
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(x=box_mean, name='box'))
+    fig.update_layout(barmode='overlay')
+    fig.update_traces(opacity=0.5)
+    pio.write_image(fig, os.path.join(save_dir,"raw_audio_data_box.png"), format='png')
+
+
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(x=other_mean, name='other'))
+    fig.update_layout(barmode='overlay')
+    fig.update_traces(opacity=0.5)
+    pio.write_image(fig, os.path.join(save_dir,"raw_audio_data_other.png"), format='png')
+
+def convert_uint8_to_s16le(uint8_array):
+    # Check if the length of the array is even
+    if len(uint8_array) % 2 != 0:
+        raise ValueError("The length of the array should be even")
+
+    # Reshape the array to have 2 columns, each row will represent a 16-bit sample
+    reshaped_array = uint8_array.reshape(-1, 2)
+
+    # Convert the two uint8 values to one 16-bit value (S16LE format)
+    # The first byte is the least significant byte, and the second byte is the most significant
+    s16le_array = reshaped_array[:, 0].astype(np.int16) + (reshaped_array[:, 1].astype(np.int16) << 8)
+
+    return s16le_array
+
+def plot_raw_audio_data(dataset_path:str):
+    """ Plot the tsne of audio features for all classes, 'coins','no coins', 'other'"""
+
+    label2name = {0: "coins", 1: "box", 2: "other"}
+    name2label = {"coins": 0, "box": 1, "other": 2}
+
+    # assert path is valid
+    assert os.path.exists(dataset_path), "dataset_path does not exist"
+
+    save_dir = os.path.join(dataset_path,"results")
+
+    coins_path = os.path.join(dataset_path, "0")
+    box_path = os.path.join(dataset_path, "1")
+    other_path = os.path.join(dataset_path, "2")
+
+    # read all data files one by one
+    coins_files = [[os.path.join(coins_path, f),int(name2label["coins"])] for f in sorted(os.listdir(coins_path)) if f.endswith('.npy')]
+    box_files = [[os.path.join(box_path, f),int(name2label["box"])] for f in sorted(os.listdir(box_path)) if f.endswith('.npy')]
+    other_files = [[os.path.join(other_path, f),int(name2label['other'])] for f in sorted(os.listdir(other_path)) if f.endswith('.npy')]
+
+    idx=100
+    coin_file = coins_files[idx]
+    box_file = box_files[idx]
+    other_file = other_files[idx]
+    scale=255.0
+
+    coin_data = convert_uint8_to_s16le(np.load(coin_file[0]).astype(np.uint8))
+    box_data = convert_uint8_to_s16le(np.load(box_file[0]).astype(np.uint8))
+    other_data = convert_uint8_to_s16le(np.load(other_file[0]).astype(np.uint8))
+    print(np.count_nonzero(coin_data>100))
+
+    # Plot the raw audio data using plotly
+    plotly_data = [go.Scatter(y=coin_data, name='coins'),
+                go.Scatter(y=box_data, name='box'),
+                go.Scatter(y=other_data, name='other')]
+
+    fig = go.Figure(data=plotly_data)
+    pio.write_image(fig, os.path.join(save_dir,"raw_audio_data.png"), format='png')
+
+    # make seprate plots
+    fig = go.Figure(data=go.Scatter(y=coin_data))
+    pio.write_image(fig, os.path.join(save_dir,"raw_audio_data_coins.png"), format='png')
+
+    fig = go.Figure(data=go.Scatter(y=box_data))
+    pio.write_image(fig, os.path.join(save_dir,"raw_audio_data_box.png"), format='png')
+
+    fig = go.Figure(data=go.Scatter(y=other_data))
+    pio.write_image(fig, os.path.join(save_dir,"raw_audio_data_other.png"), format='png')
+
+
+
+
