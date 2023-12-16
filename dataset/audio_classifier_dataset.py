@@ -215,10 +215,9 @@ class AudioDataset(torch.utils.data.Dataset):
         file_path = audio_data_info[0]
         assert os.path.exists(file_path), "Audio file path does not exist"
         audio_label = np.array(audio_data_info[1]).astype(float)
-        audio_data = np.load(file_path).astype(np.uint8)
 
         # Process each audio individually
-        audio_data = process_audio(audio_data, sample_rate=16000, num_freq_bins=100, num_time_bins=57) # shape (57, 100)
+        audio_data = process_audio(file_path, sample_rate=16000, num_freq_bins=100, num_time_bins=57) # shape (57, 100)
 
         return audio_data, audio_label  
     

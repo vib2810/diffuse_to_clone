@@ -6,13 +6,34 @@ import re
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy import signal
+from pydub import AudioSegment
 
 # Ignore frequency components below this value (in Hz)
 MIN_RELEVANT_FREQUENCY = 0
 # Ignore frequency components above this value (in Hz)
 MAX_RELEVANT_FREQUENCY = 12500
 
-def process_audio(audio_data, sample_rate=16000, num_freq_bins=100, num_time_bins=57, check_valid=False):
+def get_audio_amplitude_array(npy_file_path):
+    """
+    Save npy as mp3 if not already saved
+    Load mp3 as audio segment
+    Return audio segment amplitudes as numpy array
+    """
+    loaded_audio_data = np.load(npy_file_path).astype(np.int8)
+
+    # assign the corresponding mp3 file path
+    mp3_path = npy_file_path[:-4] + '.mp3'
+    
+    # check if mp3 file exists
+    if not os.path.exists(mp3_path):
+        # Assuming the loaded data is in the correct format for MP3
+        with open(mp3_path, 'wb') as mp3_file:
+            mp3_file.write(loaded_audio_data.tobytes())
+
+    audio_segment = AudioSegment.from_mp3(mp3_path)
+    return np.array(audio_segment.get_array_of_samples())
+
+def process_audio(audio_data_npy_path, sample_rate=16000, num_freq_bins=100, num_time_bins=57, check_valid=False):
   '''Computes and processes a binned spectrogram from a raw audio (unclipped and unpadded) signal array.
 
   Args:
@@ -25,10 +46,12 @@ def process_audio(audio_data, sample_rate=16000, num_freq_bins=100, num_time_bin
   Returns:
     A numpy.array representing the processed and binned spectrogram
   '''
+  audio_data = get_audio_amplitude_array(audio_data_npy_path) # shape (37440,)
+  
   fully_binned_spectrogram, binned_freq_spectrogram = compute_spectrogram(audio_data, sample_rate, num_freq_bins, num_time_bins)
 
   # This is for debugging any invalid spectrograms that slip through the cracks.
-  if check_valid and np.mean(fully_binned_spectrogram) < 1:
+  if check_valid:
     print(np.mean(fully_binned_spectrogram))
     plt.imshow(binned_freq_spectrogram)
     plt.colorbar()
@@ -36,7 +59,7 @@ def process_audio(audio_data, sample_rate=16000, num_freq_bins=100, num_time_bin
     plt.imshow(fully_binned_spectrogram)
     plt.colorbar()
     plt.show()
-  fully_binned_spectrogram = fully_binned_spectrogram/600
+  fully_binned_spectrogram = fully_binned_spectrogram/60000
   
   return fully_binned_spectrogram
 
