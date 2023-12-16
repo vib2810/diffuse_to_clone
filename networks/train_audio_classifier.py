@@ -36,9 +36,7 @@ if __name__ == "__main__":
     train_params = {
         "batch_size": 256,
         "eval_batch_size": 256,
-        "learning_rate": 1e-4,
-        "n_layers": 4,
-        "hidden_size": 1024,
+        "learning_rate": 1e-6,
         "num_workers": 8,
         "num_epochs": 50,
         "loss": nn.CrossEntropyLoss,
@@ -53,7 +51,6 @@ if __name__ == "__main__":
 
     train_params["experiment_name"] = train_params['model_class'].__name__ + \
                                     '_dataset_' + dataset_name + \
-                                    '_hidden_size_' + str(train_params['hidden_size']) + \
                                     '_lr_' + str(train_params['learning_rate']) + \
                                     '_bs_' + str(train_params['batch_size']) + \
                                     '_epochs_' + str(train_params['num_epochs']) + \

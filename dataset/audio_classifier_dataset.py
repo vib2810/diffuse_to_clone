@@ -204,20 +204,21 @@ class AudioDataset(torch.utils.data.Dataset):
         file_path = audio_data_info[0]
         assert os.path.exists(file_path), "Audio file path does not exist"
         audio_label = np.array(audio_data_info[1]).astype(float)
-        audio_data = np.load(file_path)
+        audio_data_raw = np.load(file_path)
 
         # Process each audio individually
-        audio_data = process_audio(audio_data, sample_rate=16000, num_freq_bins=100, num_time_bins=57) # shape (57, 100)
+        audio_data = process_audio(audio_data_raw, sample_rate=16000, num_freq_bins=100, num_time_bins=57) # shape (57, 100)
 
-        return audio_data, audio_label  
+        return audio_data, audio_label, audio_data_raw  
     
     def __getitem__(self, idx):
 
         nsample = {}
         # Processing for Audio
         audio_data_info = self.audio_data_info[idx]       
-        audio_data, audio_label = self.get_audio(audio_data_info)
+        audio_data, audio_label, audio_data_raw = self.get_audio(audio_data_info)
         nsample['audio'] = torch.from_numpy(np.array(audio_data))
+        nsample['audio_data_raw'] = torch.from_numpy(audio_data_raw)
 
         ## Make one hot encoding of audio label
         one_hot = torch.zeros(3)

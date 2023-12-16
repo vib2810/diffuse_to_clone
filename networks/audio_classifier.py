@@ -73,9 +73,9 @@ class AudioCNN(nn.Module):
             'fc': self.fc,
         })
 
-        self.optimizer = torch.optim.AdamW(
+        self.optimizer = torch.optim.Adam(
             params=self.nets.parameters(),
-            lr=self.lr, weight_decay=1e-6)
+            lr=self.lr)
 
     def forward(self, audio):
         #forward prop
@@ -87,7 +87,7 @@ class AudioCNN(nn.Module):
         """
         Performs a single training step
         """
-        # Forward pass
+        self.optimizer.zero_grad()
         output = self.forward(audio)
 
         # print("Model output shape=", output.shape)
@@ -97,7 +97,6 @@ class AudioCNN(nn.Module):
         loss.backward()
         # Update
         self.optimizer.step()
-        self.optimizer.zero_grad()
         return loss.item()
 
     def eval_model(self, audio, targets):
@@ -105,11 +104,75 @@ class AudioCNN(nn.Module):
         Evaluates the model on the given data
         """
         # Forward pass
+        with torch.no_grad():
+            output = self.forward(audio)
+
+            # Compute loss
+            loss = self.lossfn(output, targets)
+            return loss.item()
+    
+    
+
+class AudioClassifierRaw(nn.Module):
+    """ Convolutional network for audio classification."""
+    def __init__(self, train_params: dict):
+        super().__init__()
+        self.audio_steps = train_params['audio_steps']
+        self.audio_bins = train_params['audio_bins']
+        self.num_classes = train_params['num_classes']
+        self.lossfn = train_params['loss']()
+        self.lr = train_params['learning_rate']
+
+        self.fc = nn.Sequential(
+            nn.Linear(32000,1024),
+            nn.ReLU(),
+            nn.Linear(1024, self.num_classes),
+        )
+
+        self.nets = nn.ModuleDict({
+            'fc': self.fc,
+        })
+
+        self.optimizer = torch.optim.Adam(
+            params=self.nets.parameters(),
+            lr=self.lr)
+
+    def forward(self, audio):
+        #forward prop
+        output = self.fc(audio)
+        return output
+
+    def train_model_step(self, audio, targets):
+        """
+        Performs a single training step
+        """
+        self.optimizer.zero_grad()
+
+        # Input shape= torch.Size([256, 32000])
+        # Model output shape= torch.Size([256, 3])
+        # Target shape= torch.Size([256, 3])
+
         output = self.forward(audio)
+
+        # print("Model output shape=", output.shape)
         # Compute loss
         loss = self.lossfn(output, targets)
+        # Backward pass
+        loss.backward()
+        # Update
+        self.optimizer.step()
         return loss.item()
 
+    def eval_model(self, audio, targets):
+        """
+        Evaluates the model on the given data
+        """
+        with torch.no_grad():
+            output = self.forward(audio)
+
+            # Compute loss
+            loss = self.lossfn(output, targets)
+            return loss.item()
     
 class AudioTrainer():
 
@@ -178,8 +241,12 @@ class AudioTrainer():
         # self.train_params["stats"] = self.stats
       
         self.lossfn = train_params["loss"]()
-        self.model = AudioCNN(self.train_params).to(self.device)
-        
+        self.raw_mode=True
+        if self.raw_mode:
+            self.model = AudioClassifierRaw(self.train_params).to(self.device)
+        else:
+            self.model = AudioCNN(self.train_params).to(self.device)
+
         self.best_eval_loss = 1e10
 
     def train_model(self):
@@ -206,8 +273,11 @@ class AudioTrainer():
                 # print data shape
                 # print(" Audio data shape", nbatch['audio'].shape)
                 # print(" Audio label shape", nbatch['audio_label'].shape)
-                nbatch = {k: v.float() for k, v in nbatch.items()}                      
-                naudio = nbatch['audio'].to(self.device)
+                nbatch = {k: v.float() for k, v in nbatch.items()}          
+                if self.raw_mode:
+                    naudio = nbatch['audio_data_raw'].to(self.device)
+                else:
+                    naudio = nbatch['audio'].to(self.device)            
                 targets = nbatch['audio_label'].to(self.device)
                 B = naudio.shape[0]
 
@@ -221,8 +291,7 @@ class AudioTrainer():
                 self.writer.add_scalar('Loss/train', loss_cpu, global_step)
                 global_step += 1
                 
-                if(not global_step%20):
-                    print("Epoch: {}, Step: {}, Loss: {}".format(epoch_idx, global_step, loss_cpu))
+                print("Epoch: {}, Step: {}, Loss: {}".format(epoch_idx, global_step, loss_cpu))
                 
     def save_model(self, step=None):
         save_dict = {}
@@ -251,7 +320,10 @@ class AudioTrainer():
             # data normalized in dataset
             # device transfer
             nbatch = {k: v.float() for k, v in nbatch.items()}
-            naudio = nbatch['audio'].to(self.device)
+            if self.raw_mode:
+                naudio = nbatch['audio_data_raw'].to(self.device)
+            else:
+                naudio = nbatch['audio'].to(self.device)            
             targets = nbatch['audio_label'].to(self.device)
             B = naudio.shape[0]
 
