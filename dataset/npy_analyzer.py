@@ -5,7 +5,7 @@ import numpy as np
 from io import BytesIO
 import os
 import preprocess_audio
-
+import sys
 def create_audio_amp_from_numpy_array(np_array_path, sample_rate=16000, sample_width=2, channels=1):
     """ 
     Does not work for some reason
@@ -58,8 +58,14 @@ def plot_amplitude(audio_amps):
     plt.xlabel('Sample')
     plt.show()
 
+if len(sys.argv) != 3:
+    print("Usage: python3 npy_analyzer.py class_id file_id")
+    exit()
 
-numpy_path = '/home/ros_ws/dataset/audio_classes/train/2/21.npy'
+class_id = sys.argv[1]
+file_id = sys.argv[2]
+
+numpy_path = '/home/ros_ws/dataset/audio_classes/train/' + class_id + '/' + file_id + '.npy'
 # audio_amps = get_audio_amplitude_array(numpy_path)
 # plot_amplitude(audio_amps)
 

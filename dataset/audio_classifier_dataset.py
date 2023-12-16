@@ -139,27 +139,20 @@ def split_data(dataset_path:str, split_ratio=0.8):
 
     max_idx = max(len(coins_files), len(box_files), len(other_files))
 
-    print("train idx coins: ", train_idx_coins)
-    print("train idx box: ", train_idx_box)
-    print("train idx other: ", train_idx_other)
-
     for idx in range(max_idx):
         if idx < train_idx_coins:
             shutil.copy(coins_files[idx][0], os.path.join(train_folder_path,str(name2label["coins"])))
         elif idx >= train_idx_coins and idx<len(coins_files):
-            print("idx coins",idx)
             shutil.copy(coins_files[idx][0], os.path.join(val_folder_path,str(name2label["coins"])))
 
         if idx < train_idx_box:
             shutil.copy(box_files[idx][0], os.path.join(train_folder_path,str(name2label["box"])))
         elif idx >= train_idx_box and idx<len(box_files):
-            print("idx box",idx)
             shutil.copy(box_files[idx][0], os.path.join(val_folder_path,str(name2label["box"])))
 
         if idx < train_idx_other:
             shutil.copy(other_files[idx][0], os.path.join(train_folder_path,str(name2label["other"])))
         elif idx >= train_idx_other and idx<len(other_files):
-            print("idx other",idx)
             shutil.copy(other_files[idx][0], os.path.join(val_folder_path,str(name2label["other"])))
 
     print("*************************************")

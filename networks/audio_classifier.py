@@ -191,6 +191,7 @@ class AudioTrainer():
             print("-----Epoch {}-----".format(epoch_idx))
             
             # evaluate model
+            print("-----Evaluating-----")
             eval_loss = self.evaluate_model()
             print("Eval loss: {}".format(eval_loss))
             self.writer.add_scalar('Loss/eval', eval_loss, global_step)
@@ -198,8 +199,10 @@ class AudioTrainer():
                 self.best_model_epoch = epoch_idx
                 self.best_eval_loss = eval_loss
                 self.save_model()
+                print("Saved model at epoch {}".format(epoch_idx))
                 
             # batch loop
+            print("-----Training-----")
             for nbatch in self.dataloader:  
                 # data normalized in dataset
 
@@ -223,8 +226,7 @@ class AudioTrainer():
                 self.writer.add_scalar('Loss/train', loss_cpu, global_step)
                 global_step += 1
                 
-                if(not global_step%20):
-                    print("Epoch: {}, Step: {}, Loss: {}".format(epoch_idx, global_step, loss_cpu))
+                print("Epoch: {}, Step: {}, Loss: {}".format(epoch_idx, global_step, loss_cpu))
                 
     def save_model(self, step=None):
         save_dict = {}

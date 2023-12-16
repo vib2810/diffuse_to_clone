@@ -38,7 +38,7 @@ if __name__ == "__main__":
     train_params = {
         "batch_size": 256,
         "eval_batch_size": 256,
-        "learning_rate": 1e-4,
+        "learning_rate": 3.5e-5,
         "num_workers": 8,
         "num_epochs": 300,
         "loss": nn.CrossEntropyLoss,
@@ -59,7 +59,7 @@ if __name__ == "__main__":
                                     '_loss_' + train_params['loss'].__name__
 
     ## split data
-    split_data(data_params['dataset_root'], split_ratio=0.8)
+    # split_data(data_params['dataset_root'], split_ratio=0.8)
 
     model_trainer = AudioTrainer(train_params, data_params)
     model_trainer.train_model()
