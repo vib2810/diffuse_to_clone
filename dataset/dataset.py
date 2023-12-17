@@ -192,7 +192,6 @@ class DiffusionDataset(torch.utils.data.Dataset):
 
         # Stack the processed audio into a batch
         audio_data = torch.stack(audio_data, dim=0) # shape (N,57,100)
-
         return audio_data
     
     def __getitem__(self, idx):
@@ -252,8 +251,8 @@ if __name__=="__main__":
     ### Create dataloader
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=128,
-        num_workers=1,
+        batch_size=256,
+        num_workers=8,
         shuffle=False,
         # accelerate cpu-gpu transfer
         pin_memory=True,

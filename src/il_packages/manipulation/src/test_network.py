@@ -320,7 +320,7 @@ class ModelTester:
             
             # preprocess audio
             processed_audio = process_audio(save_path, sample_rate=16000, num_freq_bins=100, num_time_bins=57) # shape (57, 100)
-            naudio = torch.from_numpy(processed_audio).float().unsqueeze(0).to(self.model.device) # shape (1, 57, 100)
+            naudio = torch.from_numpy(processed_audio).float().unsqueeze(0).unsqueeze(0).to(self.model.device) # shape (1, 1, 57, 100)
         else:
             naudio = None
         
