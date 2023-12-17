@@ -183,16 +183,15 @@ class DiffusionDataset(torch.utils.data.Dataset):
             data_idx = int(audio_data_info[idx, 1])
             
             file_path = os.path.join(self.dataset_path, "Audio", str(file_idx), str(data_idx)+".npy")
-            audio = np.load(file_path) # shape (32000, 1)
+            # audio = np.load(file_path) # shape (32000, 1)
             # print("Shape of audio: ", audio.shape)
 
             # Process each audio individually
-            audio = process_audio(audio, sample_rate=16000, num_freq_bins=100, num_time_bins=57) # shape (57, 100)
+            audio = process_audio(file_path, sample_rate=16000, num_freq_bins=100, num_time_bins=57) # shape (57, 100)
             audio_data[idx] = torch.tensor(audio)
 
         # Stack the processed audio into a batch
         audio_data = torch.stack(audio_data, dim=0) # shape (N,57,100)
-
         return audio_data
     
     def __getitem__(self, idx):
@@ -238,7 +237,7 @@ class DiffusionDataset(torch.utils.data.Dataset):
 
 if __name__=="__main__":
     # Just for testing
-    dataset = "vision_audio_first"
+    dataset = "vision_audio_coins"
     dataset_path = '/home/ros_ws/dataset/data/'+dataset+'/train'
     assert os.path.exists(dataset_path), "Dataset path does not exist"
     dataset = DiffusionDataset(dataset_path=dataset_path,
@@ -252,8 +251,8 @@ if __name__=="__main__":
     ### Create dataloader
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=128,
-        num_workers=1,
+        batch_size=256,
+        num_workers=8,
         shuffle=False,
         # accelerate cpu-gpu transfer
         pin_memory=True,
@@ -272,7 +271,6 @@ if __name__=="__main__":
             print("size of image: ", data['image'].shape)
         if dataset.is_audio_based==True:
             print("size of audio: ", data['audio'].shape)
-        
-        # print the image input
-        print("Image input: ", data['image'])
-        break
+            # print min and max of audio
+            print("Min of audio: ", torch.min(data['audio']))
+            print("Max of audio: ", torch.max(data['audio']))

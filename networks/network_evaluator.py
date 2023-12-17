@@ -16,7 +16,7 @@ from networks.model_utils import normalize_data, unnormalize_data
 
 sys.path.append("/home/ros_ws/networks") # for torch.load to work
 
-
+import copy
 class ModelEvaluator:
     ACTION_HORIOZON = 1
     DDIM_STEPS = 20
@@ -26,11 +26,39 @@ class ModelEvaluator:
         ):
         # Initialize the model
         stored_pt_file = torch.load("/home/ros_ws/logs/models/" + model_name + ".pt", map_location=torch.device('cpu'))
+        
+        # Uncomment to fix weights and store fixed model
+        # stored_pt_file_orig = torch.load("/home/ros_ws/logs/models/" + model_name + ".pt", map_location=torch.device('cpu'))
+        # stored_pt_file = copy.deepcopy(stored_pt_file_orig)
+        # # correct obs_dim to 1040
+        # stored_pt_file['obs_dim'] = 1040        
+        # # copy of stored_pt_file
+        # for key in stored_pt_file_orig['model_weights'].keys():
+        #     # for all keys of stored_pt_file['model_weights'] that start with 'noise_pred_net', make a copy with the name 'noise_pred_net_eval'
+        #     if key.startswith('noise_pred_net'):
+        #         eval_key = key.replace('noise_pred_net', 'noise_pred_net_eval')
+        #         if eval_key not in stored_pt_file_orig['model_weights'].keys():
+        #             stored_pt_file['model_weights'][eval_key] = copy.deepcopy(stored_pt_file_orig['model_weights'][key])
+        #             print("Copying weights from", key, "to", eval_key)
+            
+        #     if key.startswith('vision_encoder'):
+        #         if key.replace('vision_encoder', 'vision_encoder_eval') not in stored_pt_file_orig['model_weights'].keys():
+        #             eval_key = key.replace('vision_encoder', 'vision_encoder_eval')
+        #             stored_pt_file['model_weights'][eval_key] = copy.deepcopy(stored_pt_file_orig['model_weights'][key])
+        #             print("Copying weights from", key, "to", eval_key)
+                    
+        # # save the fixed model as same_name_fixed.pt
+        # torch.save(stored_pt_file, "/home/ros_ws/logs/models/" + model_name + "_fixed.pt")
+
         self.train_params = {key: stored_pt_file[key] for key in stored_pt_file if key != "model_weights"}
         self.train_params["action_horizon"] = self.ACTION_HORIOZON
         self.train_params["num_ddim_iters"] = self.DDIM_STEPS
+        if 'is_audio_based' not in self.train_params:
+            self.train_params['is_audio_based'] = False
         if 'num_batches' not in self.train_params:
             self.train_params['num_batches'] = self.train_params['num_traj']
+    
+
         if str(stored_pt_file["model_class"]).find("DiffusionTrainer") != -1:
             print("Loading Diffusion Model")
             self.model = DiffusionTrainer(
@@ -70,7 +98,7 @@ class ModelEvaluator:
         ### Create dataloader
         self.eval_dataloader = torch.utils.data.DataLoader(
             eval_dataset,
-            batch_size=16,
+            batch_size=256,
             num_workers=4,
             shuffle=False,
             # accelerate cpu-gpu transfer
@@ -108,7 +136,7 @@ class ModelEvaluator:
             naction = nbatch['actions'].to(self.model.device)
             B = nagent_pos.shape[0]
 
-            loss, model_actions = self.model.eval_model(nimage, nagent_pos, naction, return_actions=True, sampler=self.DIFFUSION_SAMPLER)
+            loss, model_actions = self.model.eval_model(nimage, nagent_pos, None, naction, return_actions=True, sampler=self.DIFFUSION_SAMPLER)
             
             # print("Input to eval: nagent_pos", nagent_pos)
             # print("Input to eval: naction", naction)

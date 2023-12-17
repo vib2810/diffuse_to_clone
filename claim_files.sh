@@ -1,2 +1,2 @@
 sudo chown -R $(whoami) logs/
-sudo chown -R $(whoami) dataset/data/
+sudo chown -R $(whoami) dataset/
