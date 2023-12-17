@@ -67,16 +67,35 @@ def process_audio(audio_data_npy_path, sample_rate=16000, num_freq_bins=100, num
   # This is for debugging any invalid spectrograms that slip through the cracks.
   if check_valid:
     print("Fully Binned Spectrogram Min: ", np.min(fully_binned_spectrogram), " Max: ", np.max(fully_binned_spectrogram), " Mean: ", np.mean(fully_binned_spectrogram))
-    plt.figure()
-    plt.imshow(scipy_spect)
-    plt.figure()
+    # Define the debug plot folder
+    debug_plot_folder = '/home/ros_ws/dataset/audio_classes/debug_plots/'
+    if not os.path.exists(debug_plot_folder):
+        os.makedirs(debug_plot_folder)
+
+    # Extract audio_class and data_num from audio_data_npy_path
+    audio_class = audio_data_npy_path.split('/')[-2]
+    data_num = audio_data_npy_path.split('/')[-1].split('.')[0]
+
+    # Plot and save the audio waveform
+    plt.figure(figsize=(10, 5))
     plt.plot(audio_data)
-    plt.xlabel('Time (samples)'); plt.ylabel('Amplitude')
-    plt.figure()
-    plt.imshow(fully_binned_spectrogram)
-    plt.ylabel('Time (bins)'); plt.xlabel('Frequency (bins)')
-    plt.colorbar()
-    plt.show()
+    plt.xlabel('Time (samples)')
+    plt.ylabel('Amplitude')
+    plt.title('Audio Waveform')
+    waveform_plot_path = os.path.join(debug_plot_folder, f"{audio_class}_{data_num}_waveform.png")
+    plt.savefig(waveform_plot_path)
+    plt.close()
+
+    # Plot and save the fully binned spectrogram
+    plt.figure(figsize=(10, 5))
+    img = plt.imshow(fully_binned_spectrogram, aspect='auto')
+    plt.xlabel('Frequency (bins)')
+    plt.ylabel('Time (bins)')
+    plt.title('Fully Binned Spectrogram')
+    plt.colorbar(img, orientation='vertical')
+    spectrogram_plot_path = os.path.join(debug_plot_folder, f"{audio_class}_{data_num}_spectrogram.png")
+    plt.savefig(spectrogram_plot_path)
+    plt.close()
   
   return fully_binned_spectrogram
 
